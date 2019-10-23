@@ -171,3 +171,10 @@ gront_idle
   orig: 32, 32
   offset: 0, 0
   index: 7
+high_rock
+  rotate: false
+  xy: 0, 96
+  size: 32, 32
+  orig: 32, 32
+  offset: 0, 0
+  index: 0
