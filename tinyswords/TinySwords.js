@@ -913,7 +913,7 @@ ApplicationMain.main = function() {
 ApplicationMain.create = function(config) {
 	var app = new openfl_display_Application();
 	ManifestResources.init(config);
-	app.meta.h["build"] = "18";
+	app.meta.h["build"] = "21";
 	app.meta.h["company"] = "Tiny Swords";
 	app.meta.h["file"] = "TinySwords";
 	app.meta.h["name"] = "Tiny Swords";
@@ -4841,6 +4841,9 @@ Art.frames = function(id,size,height) {
 	return Art.cache.h[id];
 };
 var BotAI = function(world) {
+	this.wallPlan = [];
+	this.reassigned = new haxe_ds_ObjectMap();
+	this.economyClock = 0;
 	this.campaign = 0;
 	this.think = 0;
 	this.phase = "Preparing";
@@ -4850,7 +4853,323 @@ var BotAI = function(world) {
 $hxClasses["BotAI"] = BotAI;
 BotAI.__name__ = "BotAI";
 BotAI.prototype = {
-	owned: function() {
+	planWalls: function() {
+		if(this.anchor == null || this.anchor == this.plannedBase) {
+			return;
+		}
+		this.plannedBase = this.anchor;
+		this.wallPlan = [];
+		this.left = Math.max(2,this.anchor.cellX - 7) | 0;
+		this.right = Math.min(57,this.anchor.cellX + 9) | 0;
+		this.top = Math.max(2,this.anchor.cellY - 6) | 0;
+		this.bottom = Math.min(42,this.anchor.cellY + 8) | 0;
+		var gateY = (this.top + this.bottom) / 2 | 0;
+		var _g = 0;
+		var _g1 = [this.bottom,this.top];
+		while(_g < _g1.length) {
+			var y = _g1[_g];
+			++_g;
+			var _g2 = this.left;
+			var _g3 = this.right + 1;
+			while(_g2 < _g3) {
+				var x = _g2++;
+				if(Math.abs(x - this.anchor.cellX) <= 1) {
+					continue;
+				}
+				this.wallPlan.push({ x : x, y : y, tile : x == this.left ? y == this.top ? 2 : 5 : x == this.right ? y == this.top ? 3 : 4 : 0});
+			}
+		}
+		var _g = 0;
+		var _g1 = [this.left,this.right];
+		while(_g < _g1.length) {
+			var x = _g1[_g];
+			++_g;
+			var _g2 = this.top + 1;
+			var _g3 = this.bottom;
+			while(_g2 < _g3) {
+				var y = _g2++;
+				if(Math.abs(y - gateY) <= 1) {
+					continue;
+				}
+				this.wallPlan.push({ x : x, y : y, tile : 1});
+			}
+		}
+	}
+	,reachable: function(sx,sy) {
+		var nav = this.world.navigation;
+		var _g = [];
+		var _g1 = 0;
+		var _g2 = nav.width * nav.height;
+		while(_g1 < _g2) {
+			var _ = _g1++;
+			_g.push(false);
+		}
+		var seen = _g;
+		if(!nav.free(sx,sy)) {
+			return seen;
+		}
+		var queue = [sy * nav.width + sx];
+		var head = 0;
+		seen[queue[0]] = true;
+		while(head < queue.length) {
+			var id = queue[head++];
+			var x = id % nav.width;
+			var y = id / nav.width | 0;
+			if(nav.canStep(x,y,x + (-1),y + (-1))) {
+				var next = (y + (-1)) * nav.width + x + (-1);
+				if(!seen[next]) {
+					seen[next] = true;
+					queue.push(next);
+				}
+			}
+			if(nav.canStep(x,y,x,y + (-1))) {
+				var next1 = (y + (-1)) * nav.width + x;
+				if(!seen[next1]) {
+					seen[next1] = true;
+					queue.push(next1);
+				}
+			}
+			if(nav.canStep(x,y,x + 1,y + (-1))) {
+				var next2 = (y + (-1)) * nav.width + x + 1;
+				if(!seen[next2]) {
+					seen[next2] = true;
+					queue.push(next2);
+				}
+			}
+			if(nav.canStep(x,y,x + (-1),y)) {
+				var next3 = y * nav.width + x + (-1);
+				if(!seen[next3]) {
+					seen[next3] = true;
+					queue.push(next3);
+				}
+			}
+			if(nav.canStep(x,y,x,y)) {
+				var next4 = y * nav.width + x;
+				if(!seen[next4]) {
+					seen[next4] = true;
+					queue.push(next4);
+				}
+			}
+			if(nav.canStep(x,y,x + 1,y)) {
+				var next5 = y * nav.width + x + 1;
+				if(!seen[next5]) {
+					seen[next5] = true;
+					queue.push(next5);
+				}
+			}
+			if(nav.canStep(x,y,x + (-1),y + 1)) {
+				var next6 = (y + 1) * nav.width + x + (-1);
+				if(!seen[next6]) {
+					seen[next6] = true;
+					queue.push(next6);
+				}
+			}
+			if(nav.canStep(x,y,x,y + 1)) {
+				var next7 = (y + 1) * nav.width + x;
+				if(!seen[next7]) {
+					seen[next7] = true;
+					queue.push(next7);
+				}
+			}
+			if(nav.canStep(x,y,x + 1,y + 1)) {
+				var next8 = (y + 1) * nav.width + x + 1;
+				if(!seen[next8]) {
+					seen[next8] = true;
+					queue.push(next8);
+				}
+			}
+		}
+		return seen;
+	}
+	,accessible: function(b,seen) {
+		var _g = b.cellY - b.footprintHeight;
+		var _g1 = b.cellY + 2;
+		while(_g < _g1) {
+			var y = _g++;
+			var _g2 = b.cellX - (b.footprintWidth / 2 | 0) - 1;
+			var _g3 = b.cellX - (b.footprintWidth / 2 | 0) + b.footprintWidth + 1;
+			while(_g2 < _g3) {
+				var x = _g2++;
+				if(x >= 0 && y >= 0 && x < 60 && y < 45 && !this.world.inFootprint(b,x,y) && seen[y * 60 + x]) {
+					return true;
+				}
+			}
+		}
+		return false;
+	}
+	,safeSite: function(kind,cx,cy,worker) {
+		if(!this.world.canPlace(kind,cx,cy)) {
+			return false;
+		}
+		var c = World.buildCost(kind);
+		var sx = worker.get_x() / 32 | 0;
+		var sy = worker.get_y() / 32 | 0;
+		var before = this.reachable(sx,sy);
+		var cells = [];
+		var _g = cy - c.h + 1;
+		var _g1 = cy + 1;
+		while(_g < _g1) {
+			var y = _g++;
+			var _g2 = cx - (c.w / 2 | 0);
+			var _g3 = cx - (c.w / 2 | 0) + c.w;
+			while(_g2 < _g3) {
+				var x = _g2++;
+				var id = y * 60 + x;
+				cells.push(id);
+				this.world.navigation.blocked[id] = true;
+			}
+		}
+		var after = this.reachable(sx,sy);
+		var safe = true;
+		var _g = 0;
+		var _g1 = this.world.enemies;
+		while(_g < _g1.length) {
+			var u = _g1[_g];
+			++_g;
+			if(!u.get_dead() && !u.sailing && u.garrison == null) {
+				var id = (u.get_y() / 32 | 0) * 60 + (u.get_x() / 32 | 0);
+				if(before[id] && !after[id]) {
+					safe = false;
+				}
+				if(u.workCell != null) {
+					var work = u.workCell.y * 60 + u.workCell.x;
+					if(before[work] && !after[work]) {
+						safe = false;
+					}
+				}
+			}
+		}
+		var _g = 0;
+		var _g1 = this.world.buildings;
+		while(_g < _g1.length) {
+			var b = _g1[_g];
+			++_g;
+			if(!b.get_dead() && this.accessible(b,before) && !this.accessible(b,after)) {
+				safe = false;
+			}
+		}
+		var _g = 0;
+		var _g1 = this.world.resources;
+		while(_g < _g1.length) {
+			var r = _g1[_g];
+			++_g;
+			if(!r.get_depleted() || r.get_renewable()) {
+				var had = false;
+				var has = false;
+				var _g2 = -1;
+				while(_g2 < 2) {
+					var dy = _g2++;
+					var _g3 = -1;
+					while(_g3 < 2) {
+						var dx = _g3++;
+						var x = r.cellX + dx;
+						var y = r.cellY + dy;
+						if(dx == 0 && dy == 0 || x < 0 || y < 0 || x >= 60 || y >= 45) {
+							continue;
+						}
+						var id = y * 60 + x;
+						if(before[id]) {
+							had = true;
+						}
+						if(after[id]) {
+							has = true;
+						}
+					}
+				}
+				if(had && !has) {
+					safe = false;
+				}
+			}
+		}
+		var _g = 0;
+		while(_g < cells.length) {
+			var id = cells[_g];
+			++_g;
+			this.world.navigation.blocked[id] = false;
+		}
+		return safe;
+	}
+	,fortify: function(peasants,bases) {
+		if(peasants.length < 4 || this.count(bases,"Barracks") == 0 || this.count(bases,"Archery") == 0 || this.count(bases,"Church") == 0) {
+			return false;
+		}
+		if(this.world.redStock.h["Wood"] < 50 || this.world.redStock.h["Gold"] < 22) {
+			return false;
+		}
+		var _g = 0;
+		while(_g < peasants.length) {
+			var u = peasants[_g];
+			++_g;
+			if(u.buildTarget == null && u.cargoAmount == 0) {
+				var _g1 = 0;
+				var _g2 = this.wallPlan;
+				while(_g1 < _g2.length) {
+					var cell = _g2[_g1];
+					++_g1;
+					if(this.safeSite("Wall",cell.x,cell.y,u) && this.world.build(u,"Wall",cell.x,cell.y,cell.tile) != null) {
+						return true;
+					}
+				}
+			}
+		}
+		return false;
+	}
+	,staffTowers: function(bases) {
+		var _gthis = this;
+		var _g = 0;
+		while(_g < bases.length) {
+			var b = [bases[_g]];
+			++_g;
+			if(b[0].kind == "Tower" && !b[0].get_constructing()) {
+				var reserved = b[0].archers.length;
+				var _g1 = 0;
+				var _g2 = this.world.enemies;
+				while(_g1 < _g2.length) {
+					var u = _g2[_g1];
+					++_g1;
+					if(u.towerTarget == b[0]) {
+						++reserved;
+					}
+				}
+				if(reserved >= 1) {
+					continue;
+				}
+				var _g3 = [];
+				var _g4 = 0;
+				var _g5 = this.world.enemies;
+				while(_g4 < _g5.length) {
+					var u1 = _g5[_g4];
+					++_g4;
+					if(u1.kind == "Archer" && !u1.get_dead() && u1.garrison == null && u1.towerTarget == null) {
+						_g3.push(u1);
+					}
+				}
+				var archers = _g3;
+				archers.sort((function(b) {
+					return function(a,c) {
+						if(a.botDeployed != c.botDeployed) {
+							if(a.botDeployed) {
+								return 1;
+							} else {
+								return -1;
+							}
+						}
+						return _gthis.world.targetDistance(a,b[0]) - _gthis.world.targetDistance(c,b[0]) | 0;
+					};
+				})(b));
+				var _g6 = 0;
+				while(_g6 < archers.length) {
+					var u2 = archers[_g6];
+					++_g6;
+					if(this.world.enterTower(u2,b[0])) {
+						u2.botDeployed = false;
+						break;
+					}
+				}
+			}
+		}
+	}
+	,owned: function() {
 		var _g = [];
 		var _g1 = 0;
 		var _g2 = this.world.buildings;
@@ -4897,7 +5216,10 @@ BotAI.prototype = {
 					}
 					var x = this.anchor.cellX + dx;
 					var y = this.anchor.cellY + dy;
-					if(!this.world.canPlace(kind,x,y)) {
+					if(x - (c.w / 2 | 0) <= this.left || x - (c.w / 2 | 0) + c.w - 1 >= this.right || y - c.h + 1 <= this.top || y >= this.bottom) {
+						continue;
+					}
+					if(!this.safeSite(kind,x,y,worker)) {
 						continue;
 					}
 					var result = this.world.build(worker,kind,x,y);
@@ -5010,8 +5332,255 @@ BotAI.prototype = {
 			this.world.spawn("Archer",spot.x - 15,spot.y - 10,true);
 		}
 	}
+	,count: function(bases,kind) {
+		var _g = [];
+		var _g1 = 0;
+		while(_g1 < bases.length) {
+			var b = bases[_g1];
+			++_g1;
+			if(b.kind == kind) {
+				_g.push(b);
+			}
+		}
+		return _g.length;
+	}
+	,nextBuilding: function(bases,army) {
+		var kind = "Castle";
+		if(this.count(bases,kind) == 0) {
+			return kind;
+		}
+		var kind = "Barracks";
+		if(this.count(bases,kind) == 0) {
+			return kind;
+		}
+		var kind = "Archery";
+		if(this.count(bases,kind) == 0) {
+			return kind;
+		}
+		var kind = "Church";
+		if(this.count(bases,kind) == 0) {
+			return kind;
+		}
+		if(this.count(bases,"House1") == 0) {
+			return "House1";
+		}
+		if(this.count(bases,"Tower") < 2) {
+			return "Tower";
+		}
+		if(army >= 6) {
+			var kind = "Barracks";
+			if(this.count(bases,kind) < 2) {
+				return kind;
+			}
+			var kind = "Archery";
+			if(this.count(bases,kind) < 2) {
+				return kind;
+			}
+		}
+		return null;
+	}
+	,trainArmy: function(bases,peasants) {
+		var pending = 0;
+		var workerQueue = 0;
+		var monks = 0;
+		var _g = 0;
+		while(_g < bases.length) {
+			var b = bases[_g];
+			++_g;
+			pending += b.queue;
+			if(b.kind == "Castle") {
+				workerQueue += b.queue;
+			}
+			if(b.kind == "Church") {
+				monks += b.queue;
+			}
+		}
+		var _g = 0;
+		var _g1 = this.world.enemies;
+		while(_g < _g1.length) {
+			var u = _g1[_g];
+			++_g;
+			if(u.kind == "Monk" && !u.get_dead()) {
+				++monks;
+			}
+		}
+		var _g = 0;
+		while(_g < bases.length) {
+			var b = bases[_g];
+			++_g;
+			if(b.kind == "Castle" && !b.get_constructing() && b.queue == 0 && peasants.length + workerQueue < 8 && this.world.enemies.length + pending < 24) {
+				if(this.world.train(b)) {
+					++pending;
+					++workerQueue;
+				}
+			}
+		}
+		var reserve = peasants.length + workerQueue < 8 ? 20 : 0;
+		var _g = 0;
+		while(_g < bases.length) {
+			var b = bases[_g];
+			++_g;
+			if(!b.get_constructing() && b.kind != "Castle" && b.get_unitKind() != null && b.queue == 0 && this.world.enemies.length + pending < 24) {
+				if(b.kind == "Church" && monks >= 2) {
+					continue;
+				}
+				if(b.kind != "Church" && this.world.enemies.length + pending >= 22 + (Math.min(2,monks) | 0)) {
+					continue;
+				}
+				if(this.world.redStock.h["Food"] < b.get_foodCost() + reserve) {
+					continue;
+				}
+				if(this.world.train(b)) {
+					++pending;
+					if(b.kind == "Church") {
+						++monks;
+					}
+				}
+			}
+		}
+	}
+	,manageEconomy: function(peasants,desired) {
+		var kinds = ["Food","Wood","Gold"];
+		var cost = desired == null ? null : World.buildCost(desired);
+		var targets_h = Object.create(null);
+		targets_h["Food"] = 120;
+		targets_h["Wood"] = cost == null ? 100 : cost.wood + 80;
+		targets_h["Gold"] = cost == null ? 80 : cost.gold + 40;
+		var _g = [];
+		var _g1 = 0;
+		while(_g1 < peasants.length) {
+			var u = peasants[_g1];
+			++_g1;
+			if(u.buildTarget == null) {
+				_g.push(u);
+			}
+		}
+		var available = _g;
+		var quota_h = Object.create(null);
+		quota_h["Food"] = 0;
+		quota_h["Wood"] = 0;
+		quota_h["Gold"] = 0;
+		var _g = 0;
+		var _g1 = available.length;
+		while(_g < _g1) {
+			var i = _g++;
+			var best = kinds[i % 3];
+			if(i >= 3) {
+				var score = -Infinity;
+				var _g2 = 0;
+				while(_g2 < kinds.length) {
+					var kind = kinds[_g2];
+					++_g2;
+					var shortage = Math.max(0.1,(targets_h[kind] - this.world.redStock.h[kind]) / targets_h[kind]);
+					var value = shortage / (quota_h[kind] + 1);
+					if(value > score) {
+						score = value;
+						best = kind;
+					}
+				}
+			}
+			quota_h[best] += 1;
+		}
+		var assigned_h = Object.create(null);
+		assigned_h["Food"] = 0;
+		assigned_h["Wood"] = 0;
+		assigned_h["Gold"] = 0;
+		var _g = 0;
+		while(_g < available.length) {
+			var u = available[_g];
+			++_g;
+			if(u.resourceTarget != null) {
+				assigned_h[u.resourceTarget.kind] += 1;
+			}
+		}
+		var _g = 0;
+		while(_g < available.length) {
+			var u = [available[_g]];
+			++_g;
+			if(u[0].cargoAmount > 0) {
+				if(u[0].task == "idle") {
+					this.world.returnCargo(u[0],false);
+				}
+				continue;
+			}
+			if(u[0].attackTarget != null) {
+				continue;
+			}
+			var current = u[0].resourceTarget == null ? null : u[0].resourceTarget.kind;
+			var excess = current != null && assigned_h[current] > quota_h[current];
+			if(u[0].task != "idle" && (!excess || this.reassigned.h.__keys__[u[0].__id__] != null && this.economyClock - this.reassigned.h[u[0].__id__] < 8)) {
+				continue;
+			}
+			var priorities = kinds.slice();
+			priorities.sort((function() {
+				return function(a,b) {
+					return quota_h[b] - assigned_h[b] - (quota_h[a] - assigned_h[a]);
+				};
+			})());
+			var _g1 = 0;
+			while(_g1 < priorities.length) {
+				var kind = priorities[_g1];
+				++_g1;
+				if(u[0].task != "idle" && assigned_h[kind] >= quota_h[kind]) {
+					continue;
+				}
+				var _g2 = [];
+				var _g3 = 0;
+				var _g4 = this.world.resources;
+				while(_g3 < _g4.length) {
+					var r = _g4[_g3];
+					++_g3;
+					if(r.kind == kind && (!r.get_depleted() || r.get_renewable())) {
+						_g2.push(r);
+					}
+				}
+				var nodes = _g2;
+				nodes.sort((function(u) {
+					return function(a,b) {
+						return openfl_geom_Point.distance(new openfl_geom_Point(u[0].get_x(),u[0].get_y()),new openfl_geom_Point(a.get_x(),a.get_y())) - openfl_geom_Point.distance(new openfl_geom_Point(u[0].get_x(),u[0].get_y()),new openfl_geom_Point(b.get_x(),b.get_y())) | 0;
+					};
+				})(u));
+				var gathered = false;
+				var _g5 = 0;
+				while(_g5 < nodes.length) {
+					var node = nodes[_g5];
+					++_g5;
+					if(this.world.gather(u[0],node)) {
+						gathered = true;
+						break;
+					}
+				}
+				if(gathered) {
+					if(current != null) {
+						assigned_h[current] -= 1;
+					}
+					assigned_h[kind] += 1;
+					this.reassigned.set(u[0],this.economyClock);
+					break;
+				}
+			}
+		}
+		var _g = 0;
+		var _g1 = [];
+		var u1 = this.reassigned.keys();
+		while(u1.hasNext()) {
+			var u2 = u1.next();
+			if(u2.get_dead()) {
+				_g1.push(u2);
+			}
+		}
+		var _g2 = _g1;
+		while(_g < _g2.length) {
+			var u1 = _g2[_g];
+			++_g;
+			this.reassigned.remove(u1);
+		}
+	}
 	,update: function(dt) {
 		var _gthis = this;
+		if(dt <= 0) {
+			return;
+		}
 		if(!this.active) {
 			this.start();
 		}
@@ -5020,6 +5589,7 @@ BotAI.prototype = {
 		}
 		this.think -= dt;
 		this.campaign += dt;
+		this.economyClock += dt;
 		if(this.think > 0) {
 			return;
 		}
@@ -5029,6 +5599,20 @@ BotAI.prototype = {
 		if(bases.length == 0 && peasants.length == 0) {
 			this.phase = "Defeated";
 			return;
+		}
+		var _g = 0;
+		while(_g < bases.length) {
+			var b = bases[_g];
+			++_g;
+			if(b.kind == "Castle") {
+				this.anchor = b;
+				break;
+			}
+		}
+		if(this.anchor == null || this.anchor.get_dead()) {
+			if(bases.length > 0) {
+				this.anchor = bases[0];
+			}
 		}
 		var _g = [];
 		var _g1 = 0;
@@ -5041,50 +5625,9 @@ BotAI.prototype = {
 			}
 		}
 		var army = _g;
-		var pending = 0;
-		var _g = 0;
-		while(_g < bases.length) {
-			var b = bases[_g];
-			++_g;
-			pending += b.queue;
-		}
-		var _g = 0;
-		while(_g < bases.length) {
-			var b = bases[_g];
-			++_g;
-			if(b.kind == "Castle" && !b.get_constructing() && b.queue == 0 && peasants.length < 6 && this.world.enemies.length + pending < 24) {
-				if(this.world.train(b)) {
-					++pending;
-				}
-			}
-		}
-		var _g = 0;
-		while(_g < bases.length) {
-			var b = bases[_g];
-			++_g;
-			if(!b.get_constructing() && b.kind != "Castle" && b.get_unitKind() != null && b.queue == 0 && this.world.enemies.length + pending < 24) {
-				var _g1 = [];
-				var _g2 = 0;
-				var _g3 = this.world.enemies;
-				while(_g2 < _g3.length) {
-					var u = _g3[_g2];
-					++_g2;
-					if(u.kind == "Monk") {
-						_g1.push(u);
-					}
-				}
-				var monks = _g1.length;
-				if(b.kind == "Church" && monks >= 2) {
-					continue;
-				}
-				if(b.kind != "Church" && this.world.enemies.length + pending >= 22 + (Math.min(2,monks) | 0)) {
-					continue;
-				}
-				if(this.world.train(b)) {
-					++pending;
-				}
-			}
-		}
+		this.planWalls();
+		this.trainArmy(bases,peasants);
+		this.staffTowers(bases);
 		var _g = 0;
 		while(_g < bases.length) {
 			var b = bases[_g];
@@ -5100,28 +5643,9 @@ BotAI.prototype = {
 				}
 			}
 		}
-		var desired = null;
-		var _g = 0;
-		var _g1 = ["Castle","Barracks","Archery","Church"];
-		while(_g < _g1.length) {
-			var kind = _g1[_g];
-			++_g;
-			var _g2 = [];
-			var _g3 = 0;
-			while(_g3 < bases.length) {
-				var b = bases[_g3];
-				++_g3;
-				if(b.kind == kind) {
-					_g2.push(b);
-				}
-			}
-			if(_g2.length == 0) {
-				desired = kind;
-				break;
-			}
-		}
+		var desired = this.nextBuilding(bases,army.length);
 		var tmp;
-		if(desired != null) {
+		if(desired != null && this.anchor != null) {
 			var _g = [];
 			var _g1 = 0;
 			while(_g1 < bases.length) {
@@ -5140,73 +5664,37 @@ BotAI.prototype = {
 			while(_g < peasants.length) {
 				var u = peasants[_g];
 				++_g;
-				if(u.buildTarget == null && u.cargoAmount == 0 && this.place(desired,u) != null) {
+				if(u.buildTarget == null && u.cargoAmount == 0 && peasants.length >= 4 && this.place(desired,u) != null) {
 					break;
 				}
 			}
 		}
-		var assigned_h = Object.create(null);
-		assigned_h["Food"] = 0;
-		assigned_h["Wood"] = 0;
-		assigned_h["Gold"] = 0;
-		var _g = 0;
-		while(_g < peasants.length) {
-			var u = peasants[_g];
-			++_g;
-			if(u.resourceTarget != null) {
-				assigned_h[u.resourceTarget.kind] += 1;
+		var tmp;
+		if(desired == null) {
+			var _g = [];
+			var _g1 = 0;
+			while(_g1 < bases.length) {
+				var b = bases[_g1];
+				++_g1;
+				if(b.get_constructing()) {
+					_g.push(b);
+				}
 			}
+			tmp = _g.length == 0;
+		} else {
+			tmp = false;
 		}
-		var _g = 0;
-		while(_g < peasants.length) {
-			var u = [peasants[_g]];
-			++_g;
-			if(u[0].buildTarget != null) {
-				continue;
-			}
-			if(u[0].cargoAmount > 0) {
-				if(u[0].task == "idle") {
-					this.world.returnCargo(u[0],false);
-				}
-				continue;
-			}
-			var kind = assigned_h["Food"] < 2 ? "Food" : assigned_h["Wood"] < 2 ? "Wood" : assigned_h["Gold"] < 1 ? "Gold" : "Food";
-			if(u[0].task != "idle") {
-				continue;
-			}
-			var _g1 = [];
-			var _g2 = 0;
-			var _g3 = this.world.resources;
-			while(_g2 < _g3.length) {
-				var r = _g3[_g2];
-				++_g2;
-				if(r.kind == kind && (!r.get_depleted() || r.get_renewable())) {
-					_g1.push(r);
-				}
-			}
-			var nodes = _g1;
-			nodes.sort((function(u) {
-				return function(a,b) {
-					return openfl_geom_Point.distance(new openfl_geom_Point(u[0].get_x(),u[0].get_y()),new openfl_geom_Point(a.get_x(),a.get_y())) - openfl_geom_Point.distance(new openfl_geom_Point(u[0].get_x(),u[0].get_y()),new openfl_geom_Point(b.get_x(),b.get_y())) | 0;
-				};
-			})(u));
-			var _g4 = 0;
-			while(_g4 < nodes.length) {
-				var node = nodes[_g4];
-				++_g4;
-				if(this.world.gather(u[0],node)) {
-					assigned_h[kind] += 1;
-					break;
-				}
-			}
+		if(tmp) {
+			this.fortify(peasants,bases);
 		}
+		this.manageEconomy(peasants,desired);
 		var _g = [];
 		var _g1 = 0;
 		while(_g1 < army.length) {
-			var u1 = army[_g1];
+			var u = army[_g1];
 			++_g1;
-			if(!u1.botDeployed) {
-				_g.push(u1);
+			if(!u.botDeployed && u.garrison == null && u.towerTarget == null) {
+				_g.push(u);
 			}
 		}
 		var ready = _g;
@@ -5239,39 +5727,56 @@ BotAI.prototype = {
 			if(target != null) {
 				var _g = 0;
 				while(_g < ready.length) {
-					var u1 = ready[_g];
+					var u = ready[_g];
 					++_g;
-					u1.botDeployed = true;
-					this.world.attack(u1,target);
+					u.botDeployed = true;
+					this.world.attack(u,target);
 				}
 				var _g = 0;
 				var _g1 = this.world.enemies;
 				while(_g < _g1.length) {
-					var u1 = _g1[_g];
+					var u = _g1[_g];
 					++_g;
-					if(u1.kind == "Monk" && !u1.botDeployed) {
-						var spot = this.world.navigation.nearestReachable(u1.get_x() / 32 | 0,u1.get_y() / 32 | 0,leader.get_x() / 32 | 0,leader.get_y() / 32 | 0);
+					if(u.kind == "Monk" && !u.botDeployed) {
+						var spot = this.world.navigation.nearestReachable(u.get_x() / 32 | 0,u.get_y() / 32 | 0,leader.get_x() / 32 | 0,leader.get_y() / 32 | 0);
 						if(spot != null) {
-							this.world.cancelTask(u1);
-							this.world.routeTo(u1,spot);
-							u1.task = "moving";
-							u1.botDeployed = true;
+							this.world.cancelTask(u);
+							this.world.routeTo(u,spot);
+							u.task = "moving";
+							u.botDeployed = true;
 						}
 					}
 				}
 				this.campaign = 0;
 			}
 		}
+		var tmp;
 		var _g = [];
 		var _g1 = 0;
 		while(_g1 < army.length) {
-			var u1 = army[_g1];
+			var u = army[_g1];
 			++_g1;
-			if(u1.botDeployed) {
-				_g.push(u1);
+			if(u.botDeployed) {
+				_g.push(u);
 			}
 		}
-		this.phase = _g.length > 0 ? "Attacking" : desired != null ? "Gathering / building " + desired : "Growing army";
+		if(_g.length > 0) {
+			tmp = "Attacking";
+		} else if(desired != null) {
+			tmp = "Gathering / building " + desired;
+		} else {
+			var _g = [];
+			var _g1 = 0;
+			while(_g1 < bases.length) {
+				var b = bases[_g1];
+				++_g1;
+				if(b.kind == "Wall" && b.get_constructing()) {
+					_g.push(b);
+				}
+			}
+			tmp = _g.length > 0 ? "Fortifying base" : "Growing army";
+		}
+		this.phase = tmp;
 	}
 	,__class__: BotAI
 };
@@ -8795,6 +9300,8 @@ World.buildCost = function(kind) {
 		return { wood : 60, gold : 0, seconds : 6, w : 2, h : 1};
 	case "Tower":
 		return { wood : 100, gold : 50, seconds : 10, w : 2, h : 1};
+	case "Wall":
+		return { wood : 10, gold : 2, seconds : 2, w : 1, h : 1};
 	default:
 		return null;
 	}
@@ -9327,7 +9834,10 @@ World.prototype = $extend(openfl_display_Sprite.prototype,{
 		}
 		return best;
 	}
-	,build: function(u,kind,cx,cy) {
+	,build: function(u,kind,cx,cy,wallTile) {
+		if(wallTile == null) {
+			wallTile = 0;
+		}
 		this.buildError = "Choose clear, level land";
 		if(this.defeated || this.victory || u == null || u.get_dead() || u.kind != "Peasant" || this.allUnits().indexOf(u) < 0 || u.neutral || !this.canPlace(kind,cx,cy)) {
 			return null;
@@ -9338,8 +9848,16 @@ World.prototype = $extend(openfl_display_Sprite.prototype,{
 			this.buildError = "Need " + c.wood + " wood and " + c.gold + " gold";
 			return null;
 		}
-		this.building(kind,cx - 15,cy - 10,c.w,c.h,false,u.enemy);
-		var b = this.buildings[this.buildings.length - 1];
+		var b;
+		if(kind == "Wall") {
+			b = this.wall(cx,cy,wallTile,u.enemy);
+			if(b == null) {
+				return null;
+			}
+		} else {
+			this.building(kind,cx - 15,cy - 10,c.w,c.h,false,u.enemy);
+			b = this.buildings[this.buildings.length - 1];
+		}
 		b.buildSeconds = c.seconds;
 		if(!this.resumeBuild(u,b)) {
 			b.destructionEffects = false;
@@ -9393,12 +9911,12 @@ World.prototype = $extend(openfl_display_Sprite.prototype,{
 		return true;
 	}
 	,enterTower: function(u,b) {
-		if(u.get_dead() || u.kind != "Archer" || u.team != "Blue" || b.team != "Blue" || b.get_dead() || b.kind != "Tower" || b.get_constructing() || u.garrison == b) {
+		if(u.get_dead() || u.kind != "Archer" || u.neutral || b.team != u.team || b.get_dead() || b.kind != "Tower" || b.get_constructing() || u.garrison == b) {
 			return false;
 		}
 		var reserved = b.archers.length;
 		var _g = 0;
-		var _g1 = this.units;
+		var _g1 = this.allUnits();
 		while(_g < _g1.length) {
 			var other = _g1[_g];
 			++_g;
@@ -10001,6 +10519,9 @@ World.prototype = $extend(openfl_display_Sprite.prototype,{
 				this.updateMonk(u[0],dt);
 				continue;
 			}
+			if(u[0].towerTarget != null) {
+				continue;
+			}
 			if(u[0].enemy && u[0].kind == "Peasant") {
 				continue;
 			}
@@ -10015,14 +10536,14 @@ World.prototype = $extend(openfl_display_Sprite.prototype,{
 				u[0].task = "idle";
 			}
 			if(u[0].team != "Blue") {
-				var nearby = this.nearestOpponent(u[0],180);
+				var nearby = this.nearestOpponent(u[0],u[0].garrison != null ? u[0].get_attackRange() : 180);
 				if(nearby != null && (u[0].attackTarget == null || ((u[0].attackTarget) instanceof Building)) && !(((u[0].attackTarget) instanceof Building) && u[0].attackTarget.kind == "Wall" && !this.canHitAt(u[0],nearby,u[0].get_x(),u[0].get_y()))) {
 					var effective = nearby.garrison != null ? nearby.garrison : nearby;
 					if(u[0].attackTarget != effective) {
 						this.attack(u[0],effective);
 					}
 				}
-				if(u[0].attackTarget == null && (!u[0].enemy || !this.bot.active || u[0].botDeployed)) {
+				if(u[0].attackTarget == null && u[0].garrison == null && u[0].towerTarget == null && (!u[0].enemy || !this.bot.active || u[0].botDeployed)) {
 					var _g2 = [];
 					var _g3 = 0;
 					var _g4 = this.buildings;
@@ -31570,7 +32091,7 @@ var lime_utils_AssetCache = function() {
 	this.audio = new haxe_ds_StringMap();
 	this.font = new haxe_ds_StringMap();
 	this.image = new haxe_ds_StringMap();
-	this.version = 313232;
+	this.version = 42644;
 };
 $hxClasses["lime.utils.AssetCache"] = lime_utils_AssetCache;
 lime_utils_AssetCache.__name__ = "lime.utils.AssetCache";
@@ -87537,6 +88058,8 @@ openfl_display_DisplayObject.__tempStack = new lime_utils_ObjectPool(function() 
 });
 Art.SCALE = 0.5;
 Art.cache = new haxe_ds_StringMap();
+BotAI.WORKER_LIMIT = 8;
+BotAI.POPULATION_LIMIT = 24;
 Building.QUEUE_LIMIT = 5;
 Building.CAPACITY = 3;
 BuildingDeath.DURATION = 2.4;
