@@ -913,7 +913,7 @@ ApplicationMain.main = function() {
 ApplicationMain.create = function(config) {
 	var app = new openfl_display_Application();
 	ManifestResources.init(config);
-	app.meta.h["build"] = "21";
+	app.meta.h["build"] = "23";
 	app.meta.h["company"] = "Tiny Swords";
 	app.meta.h["file"] = "TinySwords";
 	app.meta.h["name"] = "Tiny Swords";
@@ -3479,6 +3479,10 @@ var Main = function() {
 	this.cameraX = 365;
 	this.playing = false;
 	this.resourceValues = new haxe_ds_StringMap();
+	this.boatMessage = "";
+	this.boatState = "";
+	this.islandIndex = -1;
+	this.boatIndex = -1;
 	this.monsterCampIndex = -1;
 	this.buildMenu = false;
 	openfl_display_Sprite.call(this);
@@ -3588,6 +3592,14 @@ Main.prototype = $extend(openfl_display_Sprite.prototype,{
 		},11);
 		editButton.set_y(34);
 		this.hud.addChild(editButton);
+		var boatsButton = UiSkin.button("Boats [V]",76,30,function() {
+			if(_gthis.playing) {
+				_gthis.showBoat();
+			}
+		},10);
+		boatsButton.set_x(94);
+		boatsButton.set_y(34);
+		this.hud.addChild(boatsButton);
 		var navWidth = topWidth >= 460 ? 76 : 0;
 		var navKinds_0 = "Islands";
 		var navKinds_1 = "Enemy";
@@ -3599,7 +3611,7 @@ Main.prototype = $extend(openfl_display_Sprite.prototype,{
 					return;
 				}
 				if(index == 0) {
-					_gthis.showReferenceRegion();
+					_gthis.showIsland();
 				} else if(index == 1) {
 					_gthis.showEnemyCamp();
 				} else {
@@ -3615,7 +3627,7 @@ Main.prototype = $extend(openfl_display_Sprite.prototype,{
 					return;
 				}
 				if(index1 == 0) {
-					_gthis.showReferenceRegion();
+					_gthis.showIsland();
 				} else if(index1 == 1) {
 					_gthis.showEnemyCamp();
 				} else {
@@ -3631,7 +3643,7 @@ Main.prototype = $extend(openfl_display_Sprite.prototype,{
 					return;
 				}
 				if(index2 == 0) {
-					_gthis.showReferenceRegion();
+					_gthis.showIsland();
 				} else if(index2 == 1) {
 					_gthis.showEnemyCamp();
 				} else {
@@ -3788,6 +3800,8 @@ Main.prototype = $extend(openfl_display_Sprite.prototype,{
 		this.splash.addChild(button);
 		var hint = this.label(this.splash,"Four peasants · One swordsman · One archer",cx - 250,cy + 145,14,8416074,500);
 		hint.setTextFormat(new openfl_text_TextFormat("_sans",14,8416074,false,null,null,null,null,openfl_text_TextFormatAlign.fromString("center")));
+		var travel = this.label(this.splash,"V: boats · Right-click boats with units to board · I: islands",cx - 250,cy + 173,12,8416074,500);
+		travel.setTextFormat(new openfl_text_TextFormat("_sans",12,8416074,false,null,null,null,null,openfl_text_TextFormatAlign.fromString("center")));
 	}
 	,restartBattle: function() {
 		this.removeChild(this.world);
@@ -3810,6 +3824,11 @@ Main.prototype = $extend(openfl_display_Sprite.prototype,{
 		this.marker = null;
 		this.markerLife = 0;
 		this.monsterCampIndex = -1;
+		this.selectedBoat = null;
+		this.boatIndex = -1;
+		this.islandIndex = -1;
+		this.boatState = "";
+		this.boatMessage = "";
 		this.cameraX = 365;
 		this.cameraY = 342;
 		this.playing = true;
@@ -3842,7 +3861,7 @@ Main.prototype = $extend(openfl_display_Sprite.prototype,{
 		}
 	}
 	,inMap: function(x,y) {
-		if(this.onScreen(x,y) && !(x < 92 && y >= 34 && y < 64) && !this.editor.containsPoint(x,y) && !this.topRect.contains(x,y) && !this.fullscreenRect.contains(x,y) && !this.bottomRect.contains(x,y)) {
+		if(this.onScreen(x,y) && !(x < 170 && y >= 34 && y < 64) && !this.editor.containsPoint(x,y) && !this.topRect.contains(x,y) && !this.fullscreenRect.contains(x,y) && !this.bottomRect.contains(x,y)) {
 			return !new openfl_geom_Rectangle(this.mapRect.x - 6,this.mapRect.y - 6,this.mapRect.width + 12,this.mapRect.height + 12).contains(x,y);
 		} else {
 			return false;
@@ -3859,8 +3878,8 @@ Main.prototype = $extend(openfl_display_Sprite.prototype,{
 			return;
 		}
 		if(this.mapRect.contains(e.stageX,e.stageY)) {
-			this.cameraX = (e.stageX - this.mapRect.x) / this.mapRect.width * 60 * 32 - this.stage.stageWidth / 2;
-			this.cameraY = (e.stageY - this.mapRect.y) / this.mapRect.height * 45 * 32 - this.stage.stageHeight / 2;
+			this.cameraX = (e.stageX - this.mapRect.x) / this.mapRect.width * 84 * 32 - this.stage.stageWidth / 2;
+			this.cameraY = (e.stageY - this.mapRect.y) / this.mapRect.height * 60 * 32 - this.stage.stageHeight / 2;
 			this.clampCamera();
 			return;
 		}
@@ -3894,6 +3913,15 @@ Main.prototype = $extend(openfl_display_Sprite.prototype,{
 		this.buildMenu = false;
 		this.buildKind = null;
 		this.selectedBuilding = null;
+		this.selectedBoat = null;
+		this.boatMessage = "";
+		var _g = 0;
+		var _g1 = this.world.boats;
+		while(_g < _g1.length) {
+			var boat = _g1[_g];
+			++_g;
+			boat.selected = false;
+		}
 		if(!e.shiftKey) {
 			var _g = 0;
 			var _g1 = this.world.units;
@@ -3911,6 +3939,9 @@ Main.prototype = $extend(openfl_display_Sprite.prototype,{
 			while(_g < _g1.length) {
 				var u = _g1[_g];
 				++_g;
+				if(u.transport != null) {
+					continue;
+				}
 				var dx = u.get_renderX() - end.x;
 				var dy = u.get_renderY() - 10. - end.y;
 				var d = Math.sqrt(dx * dx + dy * dy);
@@ -3921,6 +3952,16 @@ Main.prototype = $extend(openfl_display_Sprite.prototype,{
 			}
 			if(nearest != null) {
 				nearest.selected = e.shiftKey ? !nearest.selected : true;
+			} else if(this.world.boatAt(end.x,end.y) != null) {
+				this.selectedBoat = this.world.boatAt(end.x,end.y);
+				this.selectedBoat.selected = true;
+				var _g = 0;
+				var _g1 = this.world.units;
+				while(_g < _g1.length) {
+					var u = _g1[_g];
+					++_g;
+					u.selected = false;
+				}
 			} else {
 				this.selectedBuilding = this.world.buildingAt(end.x,end.y);
 				if(this.selectedBuilding != null) {
@@ -3939,7 +3980,7 @@ Main.prototype = $extend(openfl_display_Sprite.prototype,{
 			while(_g < _g1.length) {
 				var u = _g1[_g];
 				++_g;
-				if(box.contains(u.get_renderX(),u.get_renderY() - 10.)) {
+				if(u.transport == null && box.contains(u.get_renderX(),u.get_renderY() - 10.)) {
 					u.selected = true;
 				}
 			}
@@ -3964,13 +4005,28 @@ Main.prototype = $extend(openfl_display_Sprite.prototype,{
 			this.updateActions();
 			return;
 		}
+		var wx = e.stageX + this.cameraX;
+		var wy = e.stageY - this.top + this.cameraY;
+		if(this.selectedBoat != null) {
+			var boat = this.selectedBoat;
+			if(this.world.transport.sail(boat,wx / 32 | 0,wy / 32 | 0)) {
+				this.marker = new openfl_geom_Point(wx,wy);
+				this.markerLife = 0.9;
+				this.boatMessage = "";
+				this.updateActions();
+			} else {
+				this.boatMessage = this.world.transport.error;
+				this.updateActions();
+			}
+			return;
+		}
 		var _g = [];
 		var _g1 = 0;
 		var _g2 = this.world.units;
 		while(_g1 < _g2.length) {
 			var u = _g2[_g1];
 			++_g1;
-			if(u.selected) {
+			if(u.selected && u.transport == null) {
 				_g.push(u);
 			}
 		}
@@ -3978,8 +4034,20 @@ Main.prototype = $extend(openfl_display_Sprite.prototype,{
 		if(selected.length == 0) {
 			return;
 		}
-		var wx = e.stageX + this.cameraX;
-		var wy = e.stageY - this.top + this.cameraY;
+		var transportBoat = this.world.boatAt(wx,wy);
+		if(transportBoat != null) {
+			var assigned = 0;
+			var _g = 0;
+			while(_g < selected.length) {
+				var u = selected[_g];
+				++_g;
+				if(this.world.transport.board(u,transportBoat)) {
+					++assigned;
+				}
+			}
+			this.status.set_text(assigned > 0 ? assigned + " unit(s) boarding · Boat holds four" : this.world.transport.error);
+			return;
+		}
 		var patient = null;
 		var _g = 0;
 		var _g1 = this.world.units;
@@ -4112,7 +4180,7 @@ Main.prototype = $extend(openfl_display_Sprite.prototype,{
 						}
 						var tx = target.x + dx;
 						var ty = target.y + dy;
-						if(!this.world.navigation.free(tx,ty) || reserved_h.hasOwnProperty(ty * 60 + tx)) {
+						if(!this.world.navigation.free(tx,ty) || reserved_h.hasOwnProperty(ty * 84 + tx)) {
 							continue;
 						}
 						var candidate = this.world.navigation.path(sx,sy,tx,ty);
@@ -4129,7 +4197,7 @@ Main.prototype = $extend(openfl_display_Sprite.prototype,{
 			if(destination != null) {
 				this.world.cancelTask(u);
 				u.task = "moving";
-				reserved_h[destination.y * 60 + destination.x] = true;
+				reserved_h[destination.y * 84 + destination.x] = true;
 				var _g6 = [];
 				var _g7 = 0;
 				while(_g7 < route.length) {
@@ -4166,7 +4234,18 @@ Main.prototype = $extend(openfl_display_Sprite.prototype,{
 		if(!this.playing && e.keyCode == 13) {
 			this.start();
 		}
-		if(this.playing && e.keyCode == 66) {
+		if(this.playing && e.keyCode == 86) {
+			this.showBoat();
+		}
+		if(this.playing && e.keyCode == 73) {
+			this.showIsland();
+		}
+		if(this.playing && e.keyCode == 85 && this.selectedBoat != null) {
+			this.world.transport.unload(this.selectedBoat);
+			this.boatMessage = this.world.transport.error;
+			this.updateStatus();
+		}
+		if(this.playing && e.keyCode == 66 && this.selectedBoat == null) {
 			this.buildMenu = true;
 			this.updateActions();
 		}
@@ -4174,6 +4253,15 @@ Main.prototype = $extend(openfl_display_Sprite.prototype,{
 			this.buildKind = null;
 			this.buildMenu = false;
 			this.selectedBuilding = null;
+			this.selectedBoat = null;
+			this.boatMessage = "";
+			var _g = 0;
+			var _g1 = this.world.boats;
+			while(_g < _g1.length) {
+				var boat = _g1[_g];
+				++_g;
+				boat.selected = false;
+			}
 			var _g = 0;
 			var _g1 = this.world.units;
 			while(_g < _g1.length) {
@@ -4185,12 +4273,21 @@ Main.prototype = $extend(openfl_display_Sprite.prototype,{
 		}
 		if(this.playing && e.keyCode == 65 && (e.ctrlKey || e.commandKey)) {
 			this.selectedBuilding = null;
+			this.selectedBoat = null;
+			this.boatMessage = "";
+			var _g = 0;
+			var _g1 = this.world.boats;
+			while(_g < _g1.length) {
+				var boat = _g1[_g];
+				++_g;
+				boat.selected = false;
+			}
 			var _g = 0;
 			var _g1 = this.world.units;
 			while(_g < _g1.length) {
 				var u = _g1[_g];
 				++_g;
-				u.selected = true;
+				u.selected = u.transport == null;
 			}
 			this.keys.remove(65);
 			this.updateStatus();
@@ -4209,6 +4306,47 @@ Main.prototype = $extend(openfl_display_Sprite.prototype,{
 			this.cameraY = 660. - this.stage.stageHeight / 2;
 			this.clampCamera();
 		}
+	}
+	,showBoat: function() {
+		if(this.world.boats.length == 0) {
+			this.status.set_text("No transport boats remaining");
+			return;
+		}
+		this.boatMessage = "";
+		this.boatIndex = (this.boatIndex + 1) % this.world.boats.length;
+		this.selectedBoat = this.world.boats[this.boatIndex];
+		var _g = 0;
+		var _g1 = this.world.boats;
+		while(_g < _g1.length) {
+			var boat = _g1[_g];
+			++_g;
+			boat.selected = boat == this.selectedBoat;
+		}
+		var _g = 0;
+		var _g1 = this.world.units;
+		while(_g < _g1.length) {
+			var u = _g1[_g];
+			++_g;
+			u.selected = false;
+		}
+		this.selectedBuilding = null;
+		this.buildMenu = false;
+		this.buildKind = null;
+		this.cameraX = this.selectedBoat.get_x() - this.stage.stageWidth / 2;
+		this.cameraY = this.selectedBoat.get_y() - this.stage.stageHeight / 2;
+		this.clampCamera();
+		this.updateStatus();
+	}
+	,showIsland: function() {
+		this.islandIndex = (this.islandIndex + 1) % (this.world.terrain.islands.length + 1);
+		if(this.islandIndex == 0) {
+			this.showReferenceRegion();
+			return;
+		}
+		var island = this.world.terrain.islands[this.islandIndex - 1];
+		this.cameraX = island.x * 32 - this.stage.stageWidth / 2;
+		this.cameraY = island.y * 32 - this.stage.stageHeight / 2;
+		this.clampCamera();
 	}
 	,showMonsterCamp: function() {
 		var _g = [];
@@ -4256,8 +4394,8 @@ Main.prototype = $extend(openfl_display_Sprite.prototype,{
 		this.clampCamera();
 	}
 	,clampCamera: function() {
-		this.cameraX = Math.max(0,Math.min(Math.max(0,1920 - this.stage.stageWidth),this.cameraX));
-		this.cameraY = Math.max(0,Math.min(Math.max(0,1440 - this.stage.stageHeight),this.cameraY));
+		this.cameraX = Math.max(0,Math.min(Math.max(0,2688 - this.stage.stageWidth),this.cameraX));
+		this.cameraY = Math.max(0,Math.min(Math.max(0,1920 - this.stage.stageHeight),this.cameraY));
 		this.cameraX = Math.round(this.cameraX);
 		this.cameraY = Math.round(this.cameraY);
 		this.world.set_scrollRect(new openfl_geom_Rectangle(this.cameraX,this.cameraY,this.stage.stageWidth,Math.max(1,this.stage.stageHeight)));
@@ -4267,6 +4405,9 @@ Main.prototype = $extend(openfl_display_Sprite.prototype,{
 	,updateStatus: function() {
 		if(this.status == null) {
 			return;
+		}
+		if(this.selectedBoat != null && this.selectedBoat.get_dead()) {
+			this.selectedBoat = null;
 		}
 		this.updateProductionPanel();
 		this.updateActions();
@@ -4283,6 +4424,11 @@ Main.prototype = $extend(openfl_display_Sprite.prototype,{
 		var selected = _g;
 		if(this.portrait != null) {
 			this.portrait.set_bitmapData(Art.data(selected.length == 1 && selected[0].kind == "Archer" ? "ui-avatar-archer" : selected.length == 1 && selected[0].kind == "Swordsman" ? "ui-avatar-swordsman" : "ui-avatar-peasant"));
+		}
+		if(this.selectedBoat != null) {
+			this.portrait.set_bitmapData(Art.frames("player-boat",256)[0]);
+			this.status.set_text("Boat · " + this.selectedBoat.passengers.length + "/4 aboard");
+			return;
 		}
 		this.status.set_text(selected.length == 0 ? "Select units" : selected.length == 1 ? selected[0].kind + " selected" : selected.length + " units selected");
 	}
@@ -4384,8 +4530,30 @@ Main.prototype = $extend(openfl_display_Sprite.prototype,{
 			}
 		}
 		var selected = _g;
-		this.actionsPanel.set_visible(this.selectedBuilding == null && selected.length > 0);
+		this.actionsPanel.set_visible(this.selectedBuilding == null && (selected.length > 0 || this.selectedBoat != null));
 		if(!this.actionsPanel.get_visible()) {
+			return;
+		}
+		if(this.selectedBoat != null) {
+			var boat = this.selectedBoat;
+			var waiting = this.world.transport.boardingCount(boat);
+			this.panel(this.actionsPanel,0,0,this.hudWidth,this.bottom,1322299);
+			this.label(this.actionsPanel,"BOAT · " + boat.passengers.length + "/4" + (waiting > 0 ? " · " + waiting + " boarding" : " aboard"),12,6,11,16767116,this.hudWidth - 24);
+			var width = Math.min(140,(this.hudWidth - 28) / 2);
+			this.actionButton("Unload [U]",12,width,function() {
+				_gthis.world.transport.unload(boat);
+				_gthis.boatMessage = _gthis.world.transport.error;
+				_gthis.updateStatus();
+			},30);
+			this.actionButton("Stop",this.hudWidth / 2,width,function() {
+				_gthis.world.transport.stop(boat);
+				_gthis.boatMessage = "";
+				_gthis.updateStatus();
+			},30);
+			var help = this.label(this.actionsPanel,this.boatMessage != "" ? this.boatMessage : "Right-click water: sail · Land: sail and unload\nBoard: right-click boat with units · V: boats · I: islands",12,66,10,10009030,this.hudWidth - 24);
+			help.set_wordWrap(true);
+			help.set_multiline(true);
+			help.set_height(46);
 			return;
 		}
 		var _g = [];
@@ -4524,20 +4692,20 @@ Main.prototype = $extend(openfl_display_Sprite.prototype,{
 			var g = this.editorGrid.get_graphics();
 			g.lineStyle(1,16777215,0.3);
 			var _g = Math.ceil(this.cameraX / 32) | 0;
-			var _g1 = (Math.min(60,Math.floor((this.cameraX + this.stage.stageWidth) / 32)) | 0) + 1;
+			var _g1 = (Math.min(84,Math.floor((this.cameraX + this.stage.stageWidth) / 32)) | 0) + 1;
 			while(_g < _g1) {
 				var cx = _g++;
 				var x = cx * 32 - this.cameraX;
 				g.moveTo(x,0);
-				g.lineTo(x,Math.min(this.stage.stageHeight,1440 - this.cameraY));
+				g.lineTo(x,Math.min(this.stage.stageHeight,1920 - this.cameraY));
 			}
 			var _g = Math.ceil(this.cameraY / 32) | 0;
-			var _g1 = (Math.min(45,Math.floor((this.cameraY + this.stage.stageHeight) / 32)) | 0) + 1;
+			var _g1 = (Math.min(60,Math.floor((this.cameraY + this.stage.stageHeight) / 32)) | 0) + 1;
 			while(_g < _g1) {
 				var cy = _g++;
 				var y = cy * 32 - this.cameraY;
 				g.moveTo(0,y);
-				g.lineTo(Math.min(this.stage.stageWidth,1920 - this.cameraX),y);
+				g.lineTo(Math.min(this.stage.stageWidth,2688 - this.cameraX),y);
 			}
 		}
 		if(this.sceneryPreview != null && (!this.editor.active || this.sceneryPreview.id != this.editor.selected)) {
@@ -4557,7 +4725,17 @@ Main.prototype = $extend(openfl_display_Sprite.prototype,{
 		}
 		this.clouds.set_visible(this.playing);
 		this.clouds.update(this.playing ? dt : 0,this.cameraX,this.cameraY,this.stage.stageWidth,this.stage.stageHeight,this.pointerX,this.pointerY,this.pointerInside);
-		if(this.world.units.length != unitCount) {
+		var _g = [];
+		var _g1 = 0;
+		var _g2 = this.world.boats;
+		while(_g1 < _g2.length) {
+			var boat = _g2[_g1];
+			++_g1;
+			_g.push(boat.passengers.length + ":" + this.world.transport.boardingCount(boat) + ":" + Std.string(boat.get_moving()) + ":" + Std.string(boat.landTarget != null));
+		}
+		var state = _g.join("|");
+		if(this.world.units.length != unitCount || this.boatState != state || this.selectedBoat != null && this.selectedBoat.get_dead()) {
+			this.boatState = state;
 			this.updateStatus();
 		}
 		this.battlePanel.set_visible(this.world.defeated || this.world.victory);
@@ -4657,16 +4835,16 @@ Main.prototype = $extend(openfl_display_Sprite.prototype,{
 		}
 		var g = this.minimap.get_graphics();
 		g.clear();
-		var sx = this.mapRect.width / 1920;
-		var sy = this.mapRect.height / 1440;
+		var sx = this.mapRect.width / 2688;
+		var sy = this.mapRect.height / 1920;
 		g.beginFill(4890287);
 		g.drawRect(0,0,this.mapRect.width,this.mapRect.height);
 		g.endFill();
 		var _g = 0;
-		while(_g < 45) {
+		while(_g < 60) {
 			var y = _g++;
 			var _g1 = 0;
-			while(_g1 < 60) {
+			while(_g1 < 84) {
 				var x = _g1++;
 				g.beginFill(this.world.terrain.color(x,y));
 				g.drawRect(x * 32 * sx,y * 32 * sy,32 * sx,32 * sy);
@@ -4695,13 +4873,24 @@ Main.prototype = $extend(openfl_display_Sprite.prototype,{
 			}
 		}
 		var _g = 0;
+		var _g1 = this.world.boats;
+		while(_g < _g1.length) {
+			var boat = _g1[_g];
+			++_g;
+			g.beginFill(boat.selected ? 16777215 : 7924207);
+			g.drawRect(boat.get_x() * sx - 2,boat.get_y() * sy - 1.5,4,3);
+			g.endFill();
+		}
+		var _g = 0;
 		var _g1 = this.world.units;
 		while(_g < _g1.length) {
 			var u = _g1[_g];
 			++_g;
-			g.beginFill(u.selected ? 16777215 : 7658234);
-			g.drawCircle(u.get_x() * sx,u.get_y() * sy,2);
-			g.endFill();
+			if(u.transport == null) {
+				g.beginFill(u.selected ? 16777215 : 7658234);
+				g.drawCircle(u.get_x() * sx,u.get_y() * sy,2);
+				g.endFill();
+			}
 		}
 		var _g = 0;
 		var _g1 = this.world.enemies;
@@ -4722,7 +4911,7 @@ Main.prototype = $extend(openfl_display_Sprite.prototype,{
 			g.endFill();
 		}
 		g.lineStyle(1,16777215,0.85);
-		g.drawRect(this.cameraX * sx,this.cameraY * sy,Math.min(this.stage.stageWidth,1920) * sx,Math.min(this.stage.stageHeight,1440) * sy);
+		g.drawRect(this.cameraX * sx,this.cameraY * sy,Math.min(this.stage.stageWidth,2688) * sx,Math.min(this.stage.stageHeight,1920) * sy);
 	}
 	,__class__: Main
 });
@@ -4767,7 +4956,7 @@ Arrow.prototype = $extend(openfl_display_Sprite.prototype,{
 		if(this.finished) {
 			return;
 		}
-		if(this.target.get_dead() || !this.launched && this.shooter.get_dead()) {
+		if(this.target.get_dead() || !this.launched && (this.shooter.get_dead() || this.shooter.transport != null)) {
 			this.finished = true;
 			return;
 		}
@@ -4860,9 +5049,9 @@ BotAI.prototype = {
 		this.plannedBase = this.anchor;
 		this.wallPlan = [];
 		this.left = Math.max(2,this.anchor.cellX - 7) | 0;
-		this.right = Math.min(57,this.anchor.cellX + 9) | 0;
+		this.right = Math.min(81,this.anchor.cellX + 9) | 0;
 		this.top = Math.max(2,this.anchor.cellY - 6) | 0;
-		this.bottom = Math.min(42,this.anchor.cellY + 8) | 0;
+		this.bottom = Math.min(57,this.anchor.cellY + 8) | 0;
 		var gateY = (this.top + this.bottom) / 2 | 0;
 		var _g = 0;
 		var _g1 = [this.bottom,this.top];
@@ -4990,7 +5179,7 @@ BotAI.prototype = {
 			var _g3 = b.cellX - (b.footprintWidth / 2 | 0) + b.footprintWidth + 1;
 			while(_g2 < _g3) {
 				var x = _g2++;
-				if(x >= 0 && y >= 0 && x < 60 && y < 45 && !this.world.inFootprint(b,x,y) && seen[y * 60 + x]) {
+				if(x >= 0 && y >= 0 && x < 84 && y < 60 && !this.world.inFootprint(b,x,y) && seen[y * 84 + x]) {
 					return true;
 				}
 			}
@@ -5014,7 +5203,7 @@ BotAI.prototype = {
 			var _g3 = cx - (c.w / 2 | 0) + c.w;
 			while(_g2 < _g3) {
 				var x = _g2++;
-				var id = y * 60 + x;
+				var id = y * 84 + x;
 				cells.push(id);
 				this.world.navigation.blocked[id] = true;
 			}
@@ -5027,12 +5216,12 @@ BotAI.prototype = {
 			var u = _g1[_g];
 			++_g;
 			if(!u.get_dead() && !u.sailing && u.garrison == null) {
-				var id = (u.get_y() / 32 | 0) * 60 + (u.get_x() / 32 | 0);
+				var id = (u.get_y() / 32 | 0) * 84 + (u.get_x() / 32 | 0);
 				if(before[id] && !after[id]) {
 					safe = false;
 				}
 				if(u.workCell != null) {
-					var work = u.workCell.y * 60 + u.workCell.x;
+					var work = u.workCell.y * 84 + u.workCell.x;
 					if(before[work] && !after[work]) {
 						safe = false;
 					}
@@ -5064,10 +5253,10 @@ BotAI.prototype = {
 						var dx = _g3++;
 						var x = r.cellX + dx;
 						var y = r.cellY + dy;
-						if(dx == 0 && dy == 0 || x < 0 || y < 0 || x >= 60 || y >= 45) {
+						if(dx == 0 && dy == 0 || x < 0 || y < 0 || x >= 84 || y >= 60) {
 							continue;
 						}
-						var id = y * 60 + x;
+						var id = y * 84 + x;
 						if(before[id]) {
 							had = true;
 						}
@@ -6169,7 +6358,7 @@ CloudLayer.prototype = $extend(openfl_display_Sprite.prototype,{
 		while(_g < _g1.length) {
 			var c = _g1[_g];
 			++_g;
-			var span = 2520;
+			var span = 3288;
 			c.set_x(((c.cx * 32 + c.offsetX + this.drift + 300) % span + span) % span - 300 - cameraX * 0.8);
 			c.set_y(c.cy * 32 + c.offsetY);
 		}
@@ -6446,7 +6635,7 @@ ManifestResources.init = function(config) {
 		ManifestResources.rootPath = "./";
 	}
 	var bundle;
-	var data = "{\"name\":null,\"assets\":\"aoy4:pathy102:res%2FTiny%20Swords%20%28Free%20Pack%29%2FUI%20Elements%2FUI%20Elements%2FWood%20Table%2FWoodTable.pngy4:sizei12144y4:typey5:IMAGEy2:idy7:ui-woody7:preloadtgoR0y99:res%2FTiny%20Swords%20%28Free%20Pack%29%2FUI%20Elements%2FUI%20Elements%2FPapers%2FRegularPaper.pngR2i2659R3R4R5y8:ui-paperR7tgoR0y109:res%2FTiny%20Swords%20%28Free%20Pack%29%2FUI%20Elements%2FUI%20Elements%2FButtons%2FBigBlueButton_Regular.pngR2i2503R3R4R5y9:ui-buttonR7tgoR0y109:res%2FTiny%20Swords%20%28Free%20Pack%29%2FUI%20Elements%2FUI%20Elements%2FButtons%2FBigBlueButton_Pressed.pngR2i2323R3R4R5y17:ui-button-pressedR7tgoR0y98:res%2FTiny%20Swords%20%28Free%20Pack%29%2FUI%20Elements%2FUI%20Elements%2FRibbons%2FBigRibbons.pngR2i34018R3R4R5y10:ui-ribbonsR7tgoR0y93:res%2FTiny%20Swords%20%28Free%20Pack%29%2FUI%20Elements%2FUI%20Elements%2FSwords%2FSwords.pngR2i20595R3R4R5y9:ui-swordsR7tgoR0y93:res%2FTiny%20Swords%20%28Free%20Pack%29%2FUI%20Elements%2FUI%20Elements%2FIcons%2FIcon_03.pngR2i1387R3R4R5y7:ui-goldR7tgoR0y93:res%2FTiny%20Swords%20%28Free%20Pack%29%2FUI%20Elements%2FUI%20Elements%2FIcons%2FIcon_02.pngR2i1441R3R4R5y12:ui-wood-iconR7tgoR0y93:res%2FTiny%20Swords%20%28Free%20Pack%29%2FUI%20Elements%2FUI%20Elements%2FIcons%2FIcon_04.pngR2i1487R3R4R5y7:ui-foodR7tgoR0y106:res%2FTiny%20Swords%20%28Free%20Pack%29%2FUI%20Elements%2FUI%20Elements%2FHuman%20Avatars%2FAvatars_05.pngR2i4808R3R4R5y17:ui-avatar-peasantR7tgoR0y106:res%2FTiny%20Swords%20%28Free%20Pack%29%2FUI%20Elements%2FUI%20Elements%2FHuman%20Avatars%2FAvatars_01.pngR2i6103R3R4R5y19:ui-avatar-swordsmanR7tgoR0y106:res%2FTiny%20Swords%20%28Free%20Pack%29%2FUI%20Elements%2FUI%20Elements%2FHuman%20Avatars%2FAvatars_03.pngR2i5022R3R4R5y16:ui-avatar-archerR7tgoR0y80:res%2FTiny%20Swords%20%28Free%20Pack%29%2FTerrain%2FTileset%2FTilemap_color2.pngR2i40334R3R4R5y12:island-tilesR7tgoR0y88:res%2FTiny%20Swords%20%28Free%20Pack%29%2FTerrain%2FResources%2FWood%2FTrees%2FTree2.pngR2i17892R3R4R5y9:tree-pineR7tgoR0y88:res%2FTiny%20Swords%20%28Free%20Pack%29%2FTerrain%2FResources%2FWood%2FTrees%2FTree3.pngR2i14564R3R4R5y9:tree-goldR7tgoR0y88:res%2FTiny%20Swords%20%28Free%20Pack%29%2FTerrain%2FResources%2FWood%2FTrees%2FTree4.pngR2i10700R3R4R5y11:tree-orangeR7tgoR0y85:res%2FTiny%20Swords%20%28Free%20Pack%29%2FTerrain%2FDecorations%2FBushes%2FBushe1.pngR2i3967R3R4R5y4:bushR7tgoR0y113:res%2FTiny%20Swords%20%28Free%20Pack%29%2FTerrain%2FDecorations%2FRocks%20in%20the%20Water%2FWater%20Rocks_01.pngR2i3518R3R4R5y10:water-rockR7tgoR0y69:res%2FTiny%20Swords%20%28Free%20Pack%29%2FParticle%20FX%2FFire_01.pngR2i1112R3R4R5y19:building-fire-smallR7tgoR0y69:res%2FTiny%20Swords%20%28Free%20Pack%29%2FParticle%20FX%2FFire_02.pngR2i2229R3R4R5y20:building-fire-mediumR7tgoR0y69:res%2FTiny%20Swords%20%28Free%20Pack%29%2FParticle%20FX%2FFire_03.pngR2i3493R3R4R5y13:building-fireR7tgoR0y74:res%2FTiny%20Swords%20%28Free%20Pack%29%2FParticle%20FX%2FExplosion_01.pngR2i5213R3R4R5y18:building-explosionR7tgoR0y69:res%2FTiny%20Swords%20%28Free%20Pack%29%2FParticle%20FX%2FDust_02.pngR2i4814R3R4R5y13:building-dustR7tgoR0y76:res%2FTiny%20Swords%20%28Free%20Pack%29%2FParticle%20FX%2FWater%20Splash.pngR2i7852R3R4R5y15:building-splashR7tgoR0y34:monster-spider%2FSpider_Attack.pngR2i13968R3R4R5R54R7tgoR0y32:monster-spider%2FSpider_Idle.pngR2i10436R3R4R5R55R7tgoR0y31:monster-spider%2FSpider_Run.pngR2i7589R3R4R5R56R7tgoR0y34:monster-bee%2FBumblebee_Attack.pngR2i25932R3R4R5R57R7tgoR0y32:monster-bee%2FBumblebee_Idle.pngR2i13185R3R4R5R58R7tgoR0y32:monster-bee%2FBumblebee_Move.pngR2i7958R3R4R5R59R7tgoR0y35:monster-demon%2FImp_Attack_Loop.pngR2i9831R3R4R5R60R7tgoR0y28:monster-demon%2FImp_Idle.pngR2i11234R3R4R5R61R7tgoR0y28:monster-demon%2FImp_Move.pngR2i9579R3R4R5R62R7tgoR0y93:res%2FTiny%20Swords%20%28Enemy%20Pack%29%2FEnemy%20Pack%2FExtra%2FFish%20Hut%2FFish%20Hut.pngR2i19631R3R4R5y9:water-hutR7tgoR0y47:seahorse-boat%2FSeahorse%20Boat_Bomb%20Fish.pngR2i12572R3R4R5R65R7tgoR0y51:seahorse-boat%2FSeahorse%20Boat_Harpoon%20Shark.pngR2i14911R3R4R5R66R7tgoR0y40:seahorse-boat%2FSeahorse%20Boat_Idle.pngR2i9380R3R4R5R67R7tgoR0y50:seahorse-boat%2FSeahorse%20Boat_Paddle%20Shark.pngR2i14420R3R4R5R68R7tgoR0y42:monster-harpoon%2FHarpoon%20Shark_Idle.pngR2i7977R3R4R5R69R7tgoR0y41:monster-harpoon%2FHarpoon%20Shark_Run.pngR2i8022R3R4R5R70R7tgoR0y43:monster-harpoon%2FHarpoon%20Shark_Throw.pngR2i12720R3R4R5R71R7tgoR0y42:monster-paddle%2FPaddle%20Shark_Attack.pngR2i13214R3R4R5R72R7tgoR0y40:monster-paddle%2FPaddle%20Shark_Idle.pngR2i9050R3R4R5R73R7tgoR0y39:monster-paddle%2FPaddle%20Shark_Run.pngR2i9056R3R4R5R74R7tgoR0y40:monster-bomb-fish%2FBomb%20Fish_Idle.pngR2i7474R3R4R5R75R7tgoR0y39:monster-bomb-fish%2FBomb%20Fish_Run.pngR2i6675R3R4R5R76R7tgoR0y41:monster-bomb-fish%2FBomb%20Fish_Shoot.pngR2i11378R3R4R5R77R7tgoR0y97:res%2FTiny%20Swords%20%28Enemy%20Pack%29%2FEnemy%20Pack%2FExtra%2FGoblin%20Hut%2FGoblin%20Hut.pngR2i32252R3R4R5y11:monster-hutR7tgoR0y48:monster-spear%2FSpear%20Goblin_Attack%20Fast.pngR2i15338R3R4R5R80R7tgoR0y39:monster-spear%2FSpear%20Goblin_Idle.pngR2i11955R3R4R5R81R7tgoR0y38:monster-spear%2FSpear%20Goblin_Run.pngR2i8652R3R4R5R82R7tgoR0y41:monster-torch%2FTorch%20Goblin_Attack.pngR2i15276R3R4R5R83R7tgoR0y39:monster-torch%2FTorch%20Goblin_Idle.pngR2i10416R3R4R5R84R7tgoR0y38:monster-torch%2FTorch%20Goblin_Run.pngR2i9825R3R4R5R85R7tgoR0y29:enemy-buildings%2FArchery.pngR2i10052R3R4R5R86R7tgoR0y30:enemy-buildings%2FBarracks.pngR2i9876R3R4R5R87R7tgoR0y28:enemy-buildings%2FCastle.pngR2i16914R3R4R5R88R7tgoR0y28:enemy-buildings%2FHouse1.pngR2i5307R3R4R5R89R7tgoR0y28:enemy-buildings%2FHouse2.pngR2i5956R3R4R5R90R7tgoR0y28:enemy-buildings%2FHouse3.pngR2i4429R3R4R5R91R7tgoR0y31:enemy-buildings%2FMonastery.pngR2i11058R3R4R5R92R7tgoR0y27:enemy-buildings%2FTower.pngR2i6464R3R4R5R93R7tgoR0y32:enemy-pawn%2FPawn_Idle%20Axe.pngR2i7419R3R4R5R94R7tgoR0y33:enemy-pawn%2FPawn_Idle%20Gold.pngR2i8566R3R4R5R95R7tgoR0y35:enemy-pawn%2FPawn_Idle%20Hammer.pngR2i7861R3R4R5R96R7tgoR0y34:enemy-pawn%2FPawn_Idle%20Knife.pngR2i7367R3R4R5R97R7tgoR0y33:enemy-pawn%2FPawn_Idle%20Meat.pngR2i9176R3R4R5R98R7tgoR0y36:enemy-pawn%2FPawn_Idle%20Pickaxe.pngR2i7358R3R4R5R99R7tgoR0y33:enemy-pawn%2FPawn_Idle%20Wood.pngR2i7031R3R4R5R100R7tgoR0y26:enemy-pawn%2FPawn_Idle.pngR2i6641R3R4R5R101R7tgoR0y36:enemy-pawn%2FPawn_Interact%20Axe.pngR2i8055R3R4R5R102R7tgoR0y39:enemy-pawn%2FPawn_Interact%20Hammer.pngR2i4995R3R4R5R103R7tgoR0y38:enemy-pawn%2FPawn_Interact%20Knife.pngR2i5742R3R4R5R104R7tgoR0y40:enemy-pawn%2FPawn_Interact%20Pickaxe.pngR2i8501R3R4R5R105R7tgoR0y31:enemy-pawn%2FPawn_Run%20Axe.pngR2i7160R3R4R5R106R7tgoR0y32:enemy-pawn%2FPawn_Run%20Gold.pngR2i7697R3R4R5R107R7tgoR0y34:enemy-pawn%2FPawn_Run%20Hammer.pngR2i7574R3R4R5R108R7tgoR0y33:enemy-pawn%2FPawn_Run%20Knife.pngR2i6775R3R4R5R109R7tgoR0y32:enemy-pawn%2FPawn_Run%20Meat.pngR2i8907R3R4R5R110R7tgoR0y35:enemy-pawn%2FPawn_Run%20Pickaxe.pngR2i6866R3R4R5R111R7tgoR0y32:enemy-pawn%2FPawn_Run%20Wood.pngR2i8054R3R4R5R112R7tgoR0y25:enemy-pawn%2FPawn_Run.pngR2i6055R3R4R5R113R7tgoR0y21:enemy-monk%2FHeal.pngR2i11554R3R4R5R114R7tgoR0y28:enemy-monk%2FHeal_Effect.pngR2i9658R3R4R5R115R7tgoR0y21:enemy-monk%2FIdle.pngR2i6533R3R4R5R116R7tgoR0y20:enemy-monk%2FRun.pngR2i5616R3R4R5R117R7tgoR0y35:enemy-warrior%2FWarrior_Attack1.pngR2i8133R3R4R5R118R7tgoR0y35:enemy-warrior%2FWarrior_Attack2.pngR2i8933R3R4R5R119R7tgoR0y32:enemy-warrior%2FWarrior_Idle.pngR2i9832R3R4R5R120R7tgoR0y31:enemy-warrior%2FWarrior_Run.pngR2i9802R3R4R5R121R7tgoR0y30:enemy-archer%2FArcher_Idle.pngR2i5056R3R4R5R122R7tgoR0y29:enemy-archer%2FArcher_Run.pngR2i5349R3R4R5R123R7tgoR0y31:enemy-archer%2FArcher_Shoot.pngR2i11899R3R4R5R124R7tgoR0y24:enemy-archer%2FArrow.pngR2i416R3R4R5R125R7tgoR0y80:res%2FTiny%20Swords%20%28Free%20Pack%29%2FTerrain%2FTileset%2FTilemap_color1.pngR2i40222R3R4R5y5:tilesR7tgoR0y88:res%2FTiny%20Swords%20%28Free%20Pack%29%2FTerrain%2FResources%2FWood%2FTrees%2FTree1.pngR2i16015R3R4R5y4:treeR7tgoR0y83:res%2FTiny%20Swords%20%28Free%20Pack%29%2FTerrain%2FDecorations%2FRocks%2FRock1.pngR2i577R3R4R5y4:rockR7tgoR0y83:res%2FTiny%20Swords%20%28Free%20Pack%29%2FTerrain%2FDecorations%2FRocks%2FRock3.pngR2i606R3R4R5y11:rock-mediumR7tgoR0y83:res%2FTiny%20Swords%20%28Free%20Pack%29%2FTerrain%2FDecorations%2FRocks%2FRock4.pngR2i900R3R4R5y10:rock-largeR7tgoR0y107:res%2FTiny%20Swords%20%28Free%20Pack%29%2FTerrain%2FResources%2FGold%2FGold%20Stones%2FGold%20Stone%206.pngR2i2146R3R4R5y4:goldR7tgoR0y94:res%2FTiny%20Swords%20%28Free%20Pack%29%2FTerrain%2FResources%2FMeat%2FSheep%2FSheep_Grass.pngR2i4961R3R4R5y5:sheepR7tgoR0y92:res%2FTiny%20Swords%20%28Free%20Pack%29%2FTerrain%2FResources%2FWood%2FTrees%2FStump%201.pngR2i1233R3R4R5y5:stumpR7tgoR0y23:buildings%2FArchery.pngR2i10177R3R4R5R142R7tgoR0y24:buildings%2FBarracks.pngR2i9968R3R4R5R143R7tgoR0y22:buildings%2FCastle.pngR2i17136R3R4R5R144R7tgoR0y22:buildings%2FHouse1.pngR2i5312R3R4R5R145R7tgoR0y22:buildings%2FHouse2.pngR2i5938R3R4R5R146R7tgoR0y22:buildings%2FHouse3.pngR2i4390R3R4R5R147R7tgoR0y25:buildings%2FMonastery.pngR2i11326R3R4R5R148R7tgoR0y21:buildings%2FTower.pngR2i6535R3R4R5R149R7tgoR0y26:pawn%2FPawn_Idle%20Axe.pngR2i7441R3R4R5R150R7tgoR0y27:pawn%2FPawn_Idle%20Gold.pngR2i8571R3R4R5R151R7tgoR0y29:pawn%2FPawn_Idle%20Hammer.pngR2i7913R3R4R5R152R7tgoR0y28:pawn%2FPawn_Idle%20Knife.pngR2i7365R3R4R5R153R7tgoR0y27:pawn%2FPawn_Idle%20Meat.pngR2i9187R3R4R5R154R7tgoR0y30:pawn%2FPawn_Idle%20Pickaxe.pngR2i7396R3R4R5R155R7tgoR0y27:pawn%2FPawn_Idle%20Wood.pngR2i7043R3R4R5R156R7tgoR0y20:pawn%2FPawn_Idle.pngR2i6656R3R4R5R157R7tgoR0y30:pawn%2FPawn_Interact%20Axe.pngR2i8057R3R4R5R158R7tgoR0y33:pawn%2FPawn_Interact%20Hammer.pngR2i4997R3R4R5R159R7tgoR0y32:pawn%2FPawn_Interact%20Knife.pngR2i5742R3R4R5R160R7tgoR0y34:pawn%2FPawn_Interact%20Pickaxe.pngR2i8508R3R4R5R161R7tgoR0y25:pawn%2FPawn_Run%20Axe.pngR2i7175R3R4R5R162R7tgoR0y26:pawn%2FPawn_Run%20Gold.pngR2i7702R3R4R5R163R7tgoR0y28:pawn%2FPawn_Run%20Hammer.pngR2i7610R3R4R5R164R7tgoR0y27:pawn%2FPawn_Run%20Knife.pngR2i6780R3R4R5R165R7tgoR0y26:pawn%2FPawn_Run%20Meat.pngR2i8918R3R4R5R166R7tgoR0y29:pawn%2FPawn_Run%20Pickaxe.pngR2i6879R3R4R5R167R7tgoR0y26:pawn%2FPawn_Run%20Wood.pngR2i8064R3R4R5R168R7tgoR0y19:pawn%2FPawn_Run.pngR2i6078R3R4R5R169R7tgoR0y29:warrior%2FWarrior_Attack1.pngR2i8169R3R4R5R170R7tgoR0y29:warrior%2FWarrior_Attack2.pngR2i8984R3R4R5R171R7tgoR0y26:warrior%2FWarrior_Idle.pngR2i9948R3R4R5R172R7tgoR0y25:warrior%2FWarrior_Run.pngR2i9809R3R4R5R173R7tgoR0y15:monk%2FHeal.pngR2i11616R3R4R5R174R7tgoR0y22:monk%2FHeal_Effect.pngR2i9658R3R4R5R175R7tgoR0y15:monk%2FIdle.pngR2i6531R3R4R5R176R7tgoR0y14:monk%2FRun.pngR2i5590R3R4R5R177R7tgoR0y24:archer%2FArcher_Idle.pngR2i5024R3R4R5R178R7tgoR0y23:archer%2FArcher_Run.pngR2i5327R3R4R5R179R7tgoR0y25:archer%2FArcher_Shoot.pngR2i11874R3R4R5R180R7tgoR0y18:archer%2FArrow.pngR2i416R3R4R5R181R7tgoR0y88:res%2FTiny%20Swords%20%28Free%20Pack%29%2FTerrain%2FDecorations%2FClouds%2FClouds_01.pngR2i4611R3R4R5y7:cloud-1R7tgoR0y88:res%2FTiny%20Swords%20%28Free%20Pack%29%2FTerrain%2FDecorations%2FClouds%2FClouds_02.pngR2i3086R3R4R5y7:cloud-2R7tgoR0y88:res%2FTiny%20Swords%20%28Free%20Pack%29%2FTerrain%2FDecorations%2FClouds%2FClouds_03.pngR2i2195R3R4R5y7:cloud-3R7tgoR0y88:res%2FTiny%20Swords%20%28Free%20Pack%29%2FTerrain%2FDecorations%2FClouds%2FClouds_04.pngR2i1510R3R4R5y7:cloud-4R7tgoR0y88:res%2FTiny%20Swords%20%28Free%20Pack%29%2FTerrain%2FDecorations%2FClouds%2FClouds_05.pngR2i4046R3R4R5y7:cloud-5R7tgoR0y88:res%2FTiny%20Swords%20%28Free%20Pack%29%2FTerrain%2FDecorations%2FClouds%2FClouds_06.pngR2i2973R3R4R5y7:cloud-6R7tgoR0y88:res%2FTiny%20Swords%20%28Free%20Pack%29%2FTerrain%2FDecorations%2FClouds%2FClouds_07.pngR2i2207R3R4R5y7:cloud-7R7tgoR0y88:res%2FTiny%20Swords%20%28Free%20Pack%29%2FTerrain%2FDecorations%2FClouds%2FClouds_08.pngR2i1479R3R4R5y7:cloud-8R7tgoR0R38R2i3967R3R4R5y14:scenery-bush-1R7tgoR0y85:res%2FTiny%20Swords%20%28Free%20Pack%29%2FTerrain%2FDecorations%2FBushes%2FBushe2.pngR2i2815R3R4R5y14:scenery-bush-2R7tgoR0y85:res%2FTiny%20Swords%20%28Free%20Pack%29%2FTerrain%2FDecorations%2FBushes%2FBushe3.pngR2i7879R3R4R5y14:scenery-bush-3R7tgoR0y85:res%2FTiny%20Swords%20%28Free%20Pack%29%2FTerrain%2FDecorations%2FBushes%2FBushe4.pngR2i3860R3R4R5y14:scenery-bush-4R7tgoR0R130R2i577R3R4R5y14:scenery-rock-1R7tgoR0y83:res%2FTiny%20Swords%20%28Free%20Pack%29%2FTerrain%2FDecorations%2FRocks%2FRock2.pngR2i805R3R4R5y14:scenery-rock-2R7tgoR0R132R2i606R3R4R5y14:scenery-rock-3R7tgoR0R134R2i900R3R4R5y14:scenery-rock-4R7tgoR0R40R2i3518R3R4R5y15:scenery-water-1R7tgoR0y113:res%2FTiny%20Swords%20%28Free%20Pack%29%2FTerrain%2FDecorations%2FRocks%20in%20the%20Water%2FWater%20Rocks_02.pngR2i4906R3R4R5y15:scenery-water-2R7tgoR0y113:res%2FTiny%20Swords%20%28Free%20Pack%29%2FTerrain%2FDecorations%2FRocks%20in%20the%20Water%2FWater%20Rocks_03.pngR2i3817R3R4R5y15:scenery-water-3R7tgoR0y113:res%2FTiny%20Swords%20%28Free%20Pack%29%2FTerrain%2FDecorations%2FRocks%20in%20the%20Water%2FWater%20Rocks_04.pngR2i5881R3R4R5y15:scenery-water-4R7tgoR0y99:res%2FTiny%20Swords%20%28Free%20Pack%29%2FTerrain%2FDecorations%2FRubber%20Duck%2FRubber%20duck.pngR2i1090R3R4R5y6:duck-1R7tgoR0y62:res%2FGenerated%2FCastleWalls%2Fcastle-wall-perspective-v2.pngR2i1760706R3R4R5y12:castle-wallsR7tgoR0y93:res%2FTiny%20Swords%20%28Free%20Pack%29%2FTerrain%2FResources%2FMeat%2FSheep%2FSheep_Move.pngR2i3131R3R4R5y10:sheep-walkR7tgoR0y93:res%2FTiny%20Swords%20%28Free%20Pack%29%2FTerrain%2FResources%2FMeat%2FSheep%2FSheep_Idle.pngR2i2813R3R4R5y10:sheep-idleR7tgoR0y69:res%2FTiny%20Swords%20%28Free%20Pack%29%2FParticle%20FX%2FDust_01.pngR2i2244R3R4R5y15:unit-death-dustR7tgoR0y98:res%2FTiny%20Swords%20%28Free%20Pack%29%2FUI%20Elements%2FUI%20Elements%2FBars%2FSmallBar_Base.pngR2i639R3R4R5y15:health-bar-baseR7tgoR0y98:res%2FTiny%20Swords%20%28Free%20Pack%29%2FUI%20Elements%2FUI%20Elements%2FBars%2FSmallBar_Fill.pngR2i127R3R4R5y15:health-bar-fillR7tgh\",\"rootPath\":null,\"version\":2,\"libraryArgs\":[],\"libraryType\":null}";
+	var data = "{\"name\":null,\"assets\":\"aoy4:pathy102:res%2FTiny%20Swords%20%28Free%20Pack%29%2FUI%20Elements%2FUI%20Elements%2FWood%20Table%2FWoodTable.pngy4:sizei12144y4:typey5:IMAGEy2:idy7:ui-woody7:preloadtgoR0y99:res%2FTiny%20Swords%20%28Free%20Pack%29%2FUI%20Elements%2FUI%20Elements%2FPapers%2FRegularPaper.pngR2i2659R3R4R5y8:ui-paperR7tgoR0y109:res%2FTiny%20Swords%20%28Free%20Pack%29%2FUI%20Elements%2FUI%20Elements%2FButtons%2FBigBlueButton_Regular.pngR2i2503R3R4R5y9:ui-buttonR7tgoR0y109:res%2FTiny%20Swords%20%28Free%20Pack%29%2FUI%20Elements%2FUI%20Elements%2FButtons%2FBigBlueButton_Pressed.pngR2i2323R3R4R5y17:ui-button-pressedR7tgoR0y98:res%2FTiny%20Swords%20%28Free%20Pack%29%2FUI%20Elements%2FUI%20Elements%2FRibbons%2FBigRibbons.pngR2i34018R3R4R5y10:ui-ribbonsR7tgoR0y93:res%2FTiny%20Swords%20%28Free%20Pack%29%2FUI%20Elements%2FUI%20Elements%2FSwords%2FSwords.pngR2i20595R3R4R5y9:ui-swordsR7tgoR0y93:res%2FTiny%20Swords%20%28Free%20Pack%29%2FUI%20Elements%2FUI%20Elements%2FIcons%2FIcon_03.pngR2i1387R3R4R5y7:ui-goldR7tgoR0y93:res%2FTiny%20Swords%20%28Free%20Pack%29%2FUI%20Elements%2FUI%20Elements%2FIcons%2FIcon_02.pngR2i1441R3R4R5y12:ui-wood-iconR7tgoR0y93:res%2FTiny%20Swords%20%28Free%20Pack%29%2FUI%20Elements%2FUI%20Elements%2FIcons%2FIcon_04.pngR2i1487R3R4R5y7:ui-foodR7tgoR0y106:res%2FTiny%20Swords%20%28Free%20Pack%29%2FUI%20Elements%2FUI%20Elements%2FHuman%20Avatars%2FAvatars_05.pngR2i4808R3R4R5y17:ui-avatar-peasantR7tgoR0y106:res%2FTiny%20Swords%20%28Free%20Pack%29%2FUI%20Elements%2FUI%20Elements%2FHuman%20Avatars%2FAvatars_01.pngR2i6103R3R4R5y19:ui-avatar-swordsmanR7tgoR0y106:res%2FTiny%20Swords%20%28Free%20Pack%29%2FUI%20Elements%2FUI%20Elements%2FHuman%20Avatars%2FAvatars_03.pngR2i5022R3R4R5y16:ui-avatar-archerR7tgoR0y80:res%2FTiny%20Swords%20%28Free%20Pack%29%2FTerrain%2FTileset%2FTilemap_color2.pngR2i40334R3R4R5y12:island-tilesR7tgoR0y88:res%2FTiny%20Swords%20%28Free%20Pack%29%2FTerrain%2FResources%2FWood%2FTrees%2FTree2.pngR2i17892R3R4R5y9:tree-pineR7tgoR0y88:res%2FTiny%20Swords%20%28Free%20Pack%29%2FTerrain%2FResources%2FWood%2FTrees%2FTree3.pngR2i14564R3R4R5y9:tree-goldR7tgoR0y88:res%2FTiny%20Swords%20%28Free%20Pack%29%2FTerrain%2FResources%2FWood%2FTrees%2FTree4.pngR2i10700R3R4R5y11:tree-orangeR7tgoR0y85:res%2FTiny%20Swords%20%28Free%20Pack%29%2FTerrain%2FDecorations%2FBushes%2FBushe1.pngR2i3967R3R4R5y4:bushR7tgoR0y113:res%2FTiny%20Swords%20%28Free%20Pack%29%2FTerrain%2FDecorations%2FRocks%20in%20the%20Water%2FWater%20Rocks_01.pngR2i3518R3R4R5y10:water-rockR7tgoR0y69:res%2FTiny%20Swords%20%28Free%20Pack%29%2FParticle%20FX%2FFire_01.pngR2i1112R3R4R5y19:building-fire-smallR7tgoR0y69:res%2FTiny%20Swords%20%28Free%20Pack%29%2FParticle%20FX%2FFire_02.pngR2i2229R3R4R5y20:building-fire-mediumR7tgoR0y69:res%2FTiny%20Swords%20%28Free%20Pack%29%2FParticle%20FX%2FFire_03.pngR2i3493R3R4R5y13:building-fireR7tgoR0y74:res%2FTiny%20Swords%20%28Free%20Pack%29%2FParticle%20FX%2FExplosion_01.pngR2i5213R3R4R5y18:building-explosionR7tgoR0y69:res%2FTiny%20Swords%20%28Free%20Pack%29%2FParticle%20FX%2FDust_02.pngR2i4814R3R4R5y13:building-dustR7tgoR0y76:res%2FTiny%20Swords%20%28Free%20Pack%29%2FParticle%20FX%2FWater%20Splash.pngR2i7852R3R4R5y15:building-splashR7tgoR0y34:monster-spider%2FSpider_Attack.pngR2i13968R3R4R5R54R7tgoR0y32:monster-spider%2FSpider_Idle.pngR2i10436R3R4R5R55R7tgoR0y31:monster-spider%2FSpider_Run.pngR2i7589R3R4R5R56R7tgoR0y34:monster-bee%2FBumblebee_Attack.pngR2i25932R3R4R5R57R7tgoR0y32:monster-bee%2FBumblebee_Idle.pngR2i13185R3R4R5R58R7tgoR0y32:monster-bee%2FBumblebee_Move.pngR2i7958R3R4R5R59R7tgoR0y35:monster-demon%2FImp_Attack_Loop.pngR2i9831R3R4R5R60R7tgoR0y28:monster-demon%2FImp_Idle.pngR2i11234R3R4R5R61R7tgoR0y28:monster-demon%2FImp_Move.pngR2i9579R3R4R5R62R7tgoR0y93:res%2FTiny%20Swords%20%28Enemy%20Pack%29%2FEnemy%20Pack%2FExtra%2FFish%20Hut%2FFish%20Hut.pngR2i19631R3R4R5y9:water-hutR7tgoR0y47:seahorse-boat%2FSeahorse%20Boat_Bomb%20Fish.pngR2i12572R3R4R5R65R7tgoR0y51:seahorse-boat%2FSeahorse%20Boat_Harpoon%20Shark.pngR2i14911R3R4R5R66R7tgoR0y40:seahorse-boat%2FSeahorse%20Boat_Idle.pngR2i9380R3R4R5R67R7tgoR0y50:seahorse-boat%2FSeahorse%20Boat_Paddle%20Shark.pngR2i14420R3R4R5R68R7tgoR0y42:monster-harpoon%2FHarpoon%20Shark_Idle.pngR2i7977R3R4R5R69R7tgoR0y41:monster-harpoon%2FHarpoon%20Shark_Run.pngR2i8022R3R4R5R70R7tgoR0y43:monster-harpoon%2FHarpoon%20Shark_Throw.pngR2i12720R3R4R5R71R7tgoR0y42:monster-paddle%2FPaddle%20Shark_Attack.pngR2i13214R3R4R5R72R7tgoR0y40:monster-paddle%2FPaddle%20Shark_Idle.pngR2i9050R3R4R5R73R7tgoR0y39:monster-paddle%2FPaddle%20Shark_Run.pngR2i9056R3R4R5R74R7tgoR0y40:monster-bomb-fish%2FBomb%20Fish_Idle.pngR2i7474R3R4R5R75R7tgoR0y39:monster-bomb-fish%2FBomb%20Fish_Run.pngR2i6675R3R4R5R76R7tgoR0y41:monster-bomb-fish%2FBomb%20Fish_Shoot.pngR2i11378R3R4R5R77R7tgoR0y97:res%2FTiny%20Swords%20%28Enemy%20Pack%29%2FEnemy%20Pack%2FExtra%2FGoblin%20Hut%2FGoblin%20Hut.pngR2i32252R3R4R5y11:monster-hutR7tgoR0y48:monster-spear%2FSpear%20Goblin_Attack%20Fast.pngR2i15338R3R4R5R80R7tgoR0y39:monster-spear%2FSpear%20Goblin_Idle.pngR2i11955R3R4R5R81R7tgoR0y38:monster-spear%2FSpear%20Goblin_Run.pngR2i8652R3R4R5R82R7tgoR0y41:monster-torch%2FTorch%20Goblin_Attack.pngR2i15276R3R4R5R83R7tgoR0y39:monster-torch%2FTorch%20Goblin_Idle.pngR2i10416R3R4R5R84R7tgoR0y38:monster-torch%2FTorch%20Goblin_Run.pngR2i9825R3R4R5R85R7tgoR0y29:enemy-buildings%2FArchery.pngR2i10052R3R4R5R86R7tgoR0y30:enemy-buildings%2FBarracks.pngR2i9876R3R4R5R87R7tgoR0y28:enemy-buildings%2FCastle.pngR2i16914R3R4R5R88R7tgoR0y28:enemy-buildings%2FHouse1.pngR2i5307R3R4R5R89R7tgoR0y28:enemy-buildings%2FHouse2.pngR2i5956R3R4R5R90R7tgoR0y28:enemy-buildings%2FHouse3.pngR2i4429R3R4R5R91R7tgoR0y31:enemy-buildings%2FMonastery.pngR2i11058R3R4R5R92R7tgoR0y27:enemy-buildings%2FTower.pngR2i6464R3R4R5R93R7tgoR0y32:enemy-pawn%2FPawn_Idle%20Axe.pngR2i7419R3R4R5R94R7tgoR0y33:enemy-pawn%2FPawn_Idle%20Gold.pngR2i8566R3R4R5R95R7tgoR0y35:enemy-pawn%2FPawn_Idle%20Hammer.pngR2i7861R3R4R5R96R7tgoR0y34:enemy-pawn%2FPawn_Idle%20Knife.pngR2i7367R3R4R5R97R7tgoR0y33:enemy-pawn%2FPawn_Idle%20Meat.pngR2i9176R3R4R5R98R7tgoR0y36:enemy-pawn%2FPawn_Idle%20Pickaxe.pngR2i7358R3R4R5R99R7tgoR0y33:enemy-pawn%2FPawn_Idle%20Wood.pngR2i7031R3R4R5R100R7tgoR0y26:enemy-pawn%2FPawn_Idle.pngR2i6641R3R4R5R101R7tgoR0y36:enemy-pawn%2FPawn_Interact%20Axe.pngR2i8055R3R4R5R102R7tgoR0y39:enemy-pawn%2FPawn_Interact%20Hammer.pngR2i4995R3R4R5R103R7tgoR0y38:enemy-pawn%2FPawn_Interact%20Knife.pngR2i5742R3R4R5R104R7tgoR0y40:enemy-pawn%2FPawn_Interact%20Pickaxe.pngR2i8501R3R4R5R105R7tgoR0y31:enemy-pawn%2FPawn_Run%20Axe.pngR2i7160R3R4R5R106R7tgoR0y32:enemy-pawn%2FPawn_Run%20Gold.pngR2i7697R3R4R5R107R7tgoR0y34:enemy-pawn%2FPawn_Run%20Hammer.pngR2i7574R3R4R5R108R7tgoR0y33:enemy-pawn%2FPawn_Run%20Knife.pngR2i6775R3R4R5R109R7tgoR0y32:enemy-pawn%2FPawn_Run%20Meat.pngR2i8907R3R4R5R110R7tgoR0y35:enemy-pawn%2FPawn_Run%20Pickaxe.pngR2i6866R3R4R5R111R7tgoR0y32:enemy-pawn%2FPawn_Run%20Wood.pngR2i8054R3R4R5R112R7tgoR0y25:enemy-pawn%2FPawn_Run.pngR2i6055R3R4R5R113R7tgoR0y21:enemy-monk%2FHeal.pngR2i11554R3R4R5R114R7tgoR0y28:enemy-monk%2FHeal_Effect.pngR2i9658R3R4R5R115R7tgoR0y21:enemy-monk%2FIdle.pngR2i6533R3R4R5R116R7tgoR0y20:enemy-monk%2FRun.pngR2i5616R3R4R5R117R7tgoR0y35:enemy-warrior%2FWarrior_Attack1.pngR2i8133R3R4R5R118R7tgoR0y35:enemy-warrior%2FWarrior_Attack2.pngR2i8933R3R4R5R119R7tgoR0y32:enemy-warrior%2FWarrior_Idle.pngR2i9832R3R4R5R120R7tgoR0y31:enemy-warrior%2FWarrior_Run.pngR2i9802R3R4R5R121R7tgoR0y30:enemy-archer%2FArcher_Idle.pngR2i5056R3R4R5R122R7tgoR0y29:enemy-archer%2FArcher_Run.pngR2i5349R3R4R5R123R7tgoR0y31:enemy-archer%2FArcher_Shoot.pngR2i11899R3R4R5R124R7tgoR0y24:enemy-archer%2FArrow.pngR2i416R3R4R5R125R7tgoR0y80:res%2FTiny%20Swords%20%28Free%20Pack%29%2FTerrain%2FTileset%2FTilemap_color1.pngR2i40222R3R4R5y5:tilesR7tgoR0y88:res%2FTiny%20Swords%20%28Free%20Pack%29%2FTerrain%2FResources%2FWood%2FTrees%2FTree1.pngR2i16015R3R4R5y4:treeR7tgoR0y83:res%2FTiny%20Swords%20%28Free%20Pack%29%2FTerrain%2FDecorations%2FRocks%2FRock1.pngR2i577R3R4R5y4:rockR7tgoR0y83:res%2FTiny%20Swords%20%28Free%20Pack%29%2FTerrain%2FDecorations%2FRocks%2FRock3.pngR2i606R3R4R5y11:rock-mediumR7tgoR0y83:res%2FTiny%20Swords%20%28Free%20Pack%29%2FTerrain%2FDecorations%2FRocks%2FRock4.pngR2i900R3R4R5y10:rock-largeR7tgoR0y107:res%2FTiny%20Swords%20%28Free%20Pack%29%2FTerrain%2FResources%2FGold%2FGold%20Stones%2FGold%20Stone%206.pngR2i2146R3R4R5y4:goldR7tgoR0y94:res%2FTiny%20Swords%20%28Free%20Pack%29%2FTerrain%2FResources%2FMeat%2FSheep%2FSheep_Grass.pngR2i4961R3R4R5y5:sheepR7tgoR0y92:res%2FTiny%20Swords%20%28Free%20Pack%29%2FTerrain%2FResources%2FWood%2FTrees%2FStump%201.pngR2i1233R3R4R5y5:stumpR7tgoR0y23:buildings%2FArchery.pngR2i10177R3R4R5R142R7tgoR0y24:buildings%2FBarracks.pngR2i9968R3R4R5R143R7tgoR0y22:buildings%2FCastle.pngR2i17136R3R4R5R144R7tgoR0y22:buildings%2FHouse1.pngR2i5312R3R4R5R145R7tgoR0y22:buildings%2FHouse2.pngR2i5938R3R4R5R146R7tgoR0y22:buildings%2FHouse3.pngR2i4390R3R4R5R147R7tgoR0y25:buildings%2FMonastery.pngR2i11326R3R4R5R148R7tgoR0y21:buildings%2FTower.pngR2i6535R3R4R5R149R7tgoR0y26:pawn%2FPawn_Idle%20Axe.pngR2i7441R3R4R5R150R7tgoR0y27:pawn%2FPawn_Idle%20Gold.pngR2i8571R3R4R5R151R7tgoR0y29:pawn%2FPawn_Idle%20Hammer.pngR2i7913R3R4R5R152R7tgoR0y28:pawn%2FPawn_Idle%20Knife.pngR2i7365R3R4R5R153R7tgoR0y27:pawn%2FPawn_Idle%20Meat.pngR2i9187R3R4R5R154R7tgoR0y30:pawn%2FPawn_Idle%20Pickaxe.pngR2i7396R3R4R5R155R7tgoR0y27:pawn%2FPawn_Idle%20Wood.pngR2i7043R3R4R5R156R7tgoR0y20:pawn%2FPawn_Idle.pngR2i6656R3R4R5R157R7tgoR0y30:pawn%2FPawn_Interact%20Axe.pngR2i8057R3R4R5R158R7tgoR0y33:pawn%2FPawn_Interact%20Hammer.pngR2i4997R3R4R5R159R7tgoR0y32:pawn%2FPawn_Interact%20Knife.pngR2i5742R3R4R5R160R7tgoR0y34:pawn%2FPawn_Interact%20Pickaxe.pngR2i8508R3R4R5R161R7tgoR0y25:pawn%2FPawn_Run%20Axe.pngR2i7175R3R4R5R162R7tgoR0y26:pawn%2FPawn_Run%20Gold.pngR2i7702R3R4R5R163R7tgoR0y28:pawn%2FPawn_Run%20Hammer.pngR2i7610R3R4R5R164R7tgoR0y27:pawn%2FPawn_Run%20Knife.pngR2i6780R3R4R5R165R7tgoR0y26:pawn%2FPawn_Run%20Meat.pngR2i8918R3R4R5R166R7tgoR0y29:pawn%2FPawn_Run%20Pickaxe.pngR2i6879R3R4R5R167R7tgoR0y26:pawn%2FPawn_Run%20Wood.pngR2i8064R3R4R5R168R7tgoR0y19:pawn%2FPawn_Run.pngR2i6078R3R4R5R169R7tgoR0y29:warrior%2FWarrior_Attack1.pngR2i8169R3R4R5R170R7tgoR0y29:warrior%2FWarrior_Attack2.pngR2i8984R3R4R5R171R7tgoR0y26:warrior%2FWarrior_Idle.pngR2i9948R3R4R5R172R7tgoR0y25:warrior%2FWarrior_Run.pngR2i9809R3R4R5R173R7tgoR0y15:monk%2FHeal.pngR2i11616R3R4R5R174R7tgoR0y22:monk%2FHeal_Effect.pngR2i9658R3R4R5R175R7tgoR0y15:monk%2FIdle.pngR2i6531R3R4R5R176R7tgoR0y14:monk%2FRun.pngR2i5590R3R4R5R177R7tgoR0y24:archer%2FArcher_Idle.pngR2i5024R3R4R5R178R7tgoR0y23:archer%2FArcher_Run.pngR2i5327R3R4R5R179R7tgoR0y25:archer%2FArcher_Shoot.pngR2i11874R3R4R5R180R7tgoR0y18:archer%2FArrow.pngR2i416R3R4R5R181R7tgoR0y88:res%2FTiny%20Swords%20%28Free%20Pack%29%2FTerrain%2FDecorations%2FClouds%2FClouds_01.pngR2i4611R3R4R5y7:cloud-1R7tgoR0y88:res%2FTiny%20Swords%20%28Free%20Pack%29%2FTerrain%2FDecorations%2FClouds%2FClouds_02.pngR2i3086R3R4R5y7:cloud-2R7tgoR0y88:res%2FTiny%20Swords%20%28Free%20Pack%29%2FTerrain%2FDecorations%2FClouds%2FClouds_03.pngR2i2195R3R4R5y7:cloud-3R7tgoR0y88:res%2FTiny%20Swords%20%28Free%20Pack%29%2FTerrain%2FDecorations%2FClouds%2FClouds_04.pngR2i1510R3R4R5y7:cloud-4R7tgoR0y88:res%2FTiny%20Swords%20%28Free%20Pack%29%2FTerrain%2FDecorations%2FClouds%2FClouds_05.pngR2i4046R3R4R5y7:cloud-5R7tgoR0y88:res%2FTiny%20Swords%20%28Free%20Pack%29%2FTerrain%2FDecorations%2FClouds%2FClouds_06.pngR2i2973R3R4R5y7:cloud-6R7tgoR0y88:res%2FTiny%20Swords%20%28Free%20Pack%29%2FTerrain%2FDecorations%2FClouds%2FClouds_07.pngR2i2207R3R4R5y7:cloud-7R7tgoR0y88:res%2FTiny%20Swords%20%28Free%20Pack%29%2FTerrain%2FDecorations%2FClouds%2FClouds_08.pngR2i1479R3R4R5y7:cloud-8R7tgoR0R38R2i3967R3R4R5y14:scenery-bush-1R7tgoR0y85:res%2FTiny%20Swords%20%28Free%20Pack%29%2FTerrain%2FDecorations%2FBushes%2FBushe2.pngR2i2815R3R4R5y14:scenery-bush-2R7tgoR0y85:res%2FTiny%20Swords%20%28Free%20Pack%29%2FTerrain%2FDecorations%2FBushes%2FBushe3.pngR2i7879R3R4R5y14:scenery-bush-3R7tgoR0y85:res%2FTiny%20Swords%20%28Free%20Pack%29%2FTerrain%2FDecorations%2FBushes%2FBushe4.pngR2i3860R3R4R5y14:scenery-bush-4R7tgoR0R130R2i577R3R4R5y14:scenery-rock-1R7tgoR0y83:res%2FTiny%20Swords%20%28Free%20Pack%29%2FTerrain%2FDecorations%2FRocks%2FRock2.pngR2i805R3R4R5y14:scenery-rock-2R7tgoR0R132R2i606R3R4R5y14:scenery-rock-3R7tgoR0R134R2i900R3R4R5y14:scenery-rock-4R7tgoR0R40R2i3518R3R4R5y15:scenery-water-1R7tgoR0y113:res%2FTiny%20Swords%20%28Free%20Pack%29%2FTerrain%2FDecorations%2FRocks%20in%20the%20Water%2FWater%20Rocks_02.pngR2i4906R3R4R5y15:scenery-water-2R7tgoR0y113:res%2FTiny%20Swords%20%28Free%20Pack%29%2FTerrain%2FDecorations%2FRocks%20in%20the%20Water%2FWater%20Rocks_03.pngR2i3817R3R4R5y15:scenery-water-3R7tgoR0y113:res%2FTiny%20Swords%20%28Free%20Pack%29%2FTerrain%2FDecorations%2FRocks%20in%20the%20Water%2FWater%20Rocks_04.pngR2i5881R3R4R5y15:scenery-water-4R7tgoR0y99:res%2FTiny%20Swords%20%28Free%20Pack%29%2FTerrain%2FDecorations%2FRubber%20Duck%2FRubber%20duck.pngR2i1090R3R4R5y6:duck-1R7tgoR0y62:res%2FGenerated%2FCastleWalls%2Fcastle-wall-perspective-v2.pngR2i1760706R3R4R5y12:castle-wallsR7tgoR0y93:res%2FTiny%20Swords%20%28Free%20Pack%29%2FTerrain%2FResources%2FMeat%2FSheep%2FSheep_Move.pngR2i3131R3R4R5y10:sheep-walkR7tgoR0y93:res%2FTiny%20Swords%20%28Free%20Pack%29%2FTerrain%2FResources%2FMeat%2FSheep%2FSheep_Idle.pngR2i2813R3R4R5y10:sheep-idleR7tgoR0y69:res%2FTiny%20Swords%20%28Free%20Pack%29%2FParticle%20FX%2FDust_01.pngR2i2244R3R4R5y15:unit-death-dustR7tgoR0y98:res%2FTiny%20Swords%20%28Free%20Pack%29%2FUI%20Elements%2FUI%20Elements%2FBars%2FSmallBar_Base.pngR2i639R3R4R5y15:health-bar-baseR7tgoR0y98:res%2FTiny%20Swords%20%28Free%20Pack%29%2FUI%20Elements%2FUI%20Elements%2FBars%2FSmallBar_Fill.pngR2i127R3R4R5y15:health-bar-fillR7tgoR0y86:res%2FTiny%20Swords%20%28Enemy%20Pack%29%2FEnemy%20Pack%2FExtra%2FBoat%2FBoat_Idle.pngR2i11622R3R4R5y11:player-boatR7tgh\",\"rootPath\":null,\"version\":2,\"libraryArgs\":[],\"libraryType\":null}";
 	var manifest = lime_utils_AssetManifest.parse(data,ManifestResources.rootPath);
 	var library = lime_utils_AssetLibrary.fromManifest(manifest);
 	lime_utils_Assets.registerLibrary("default",library);
@@ -7235,7 +7424,7 @@ SceneryEditor.prototype = $extend(openfl_display_Sprite.prototype,{
 		}
 	}
 	,place: function(wx,wy) {
-		if(wx < 0 || wy < 0 || wx >= 1920 || wy >= 1440) {
+		if(wx < 0 || wy < 0 || wx >= 2688 || wy >= 1920) {
 			return;
 		}
 		var cx = wx / 32 | 0;
@@ -7248,11 +7437,11 @@ SceneryEditor.prototype = $extend(openfl_display_Sprite.prototype,{
 			this.clouds.placeAt(this.selected,this.placementX(wx),this.placementY(wy),this.cameraX,this.cameraY);
 			return;
 		}
-		if(cx < 0 || cy < 0 || cx >= 60 || cy >= 45) {
+		if(cx < 0 || cy < 0 || cx >= 84 || cy >= 60) {
 			return;
 		}
-		var water = this.world.terrain.water[cy * 60 + cx];
-		if(Scenery.water(this.selected) != water || this.world.terrain.cliffs[cy * 60 + cx] || !water && !this.world.navigation.free(cx,cy)) {
+		var water = this.world.terrain.water[cy * 84 + cx];
+		if(Scenery.water(this.selected) != water || this.world.terrain.cliffs[cy * 84 + cx] || !water && !this.world.navigation.free(cx,cy)) {
 			this.message.set_text("Invalid tile");
 			return;
 		}
@@ -7322,7 +7511,7 @@ SceneryEditor.prototype = $extend(openfl_display_Sprite.prototype,{
 			++_g1;
 			_g.push({ id : c.id, cx : c.cx, cy : c.cy, offsetX : c.offsetX, offsetY : c.offsetY});
 		}
-		return JSON.stringify({ version : 2, width : 60, height : 45, cloudDrift : tmp, scenery : tmp1, clouds : _g},null,"  ");
+		return JSON.stringify({ version : 2, width : 84, height : 60, cloudDrift : tmp, scenery : tmp1, clouds : _g},null,"  ");
 	}
 	,number: function(value) {
 		if(typeof(value) != "number" && !(typeof(value) == "number" && ((value | 0) === value))) {
@@ -7343,7 +7532,8 @@ SceneryEditor.prototype = $extend(openfl_display_Sprite.prototype,{
 			if(data == null || data.version != null && data.version != 1 && data.version != 2) {
 				throw haxe_Exception.thrown("Unsupported map version");
 			}
-			if(data.width != null && data.width != 60 || data.height != null && data.height != 45) {
+			var legacySize = data.width == 60 && data.height == 45;
+			if(!legacySize && (data.width != null && data.width != 84 || data.height != null && data.height != 60)) {
 				throw haxe_Exception.thrown("Wrong map size");
 			}
 			if(!((data.scenery) instanceof Array) || !((data.clouds) instanceof Array)) {
@@ -7369,7 +7559,7 @@ SceneryEditor.prototype = $extend(openfl_display_Sprite.prototype,{
 				}
 				var x = s.x != null ? this.number(s.x) : this.number(s.cx) * 32 + 16;
 				var y = s.y != null ? this.number(s.y) : this.number(s.cy) * 32 + 16;
-				if(x < 0 || y < 0 || x >= 1920 || y >= 1440) {
+				if(x < 0 || y < 0 || x >= 2688 || y >= 1920) {
 					throw haxe_Exception.thrown("Scenery outside map");
 				}
 				land.push({ id : s.id, x : x, y : y});
@@ -7985,6 +8175,7 @@ StringTools.hex = function(n,digits) {
 	return s;
 };
 var Terrain = function(width,height) {
+	this.islands = [];
 	this.width = width;
 	this.height = height;
 	this.navigation = new Navigation(width,height);
@@ -7999,6 +8190,8 @@ var Terrain = function(width,height) {
 	this.cliffs = this.water.slice();
 	this.bridges = this.water.slice();
 	this.rocks = this.water.slice();
+	var mainlandWidth = Math.min(60,width) | 0;
+	var mainlandHeight = Math.min(45,height) | 0;
 	var _g = 0;
 	var _g1 = height;
 	while(_g < _g1) {
@@ -8007,7 +8200,7 @@ var Terrain = function(width,height) {
 		var _g3 = width;
 		while(_g2 < _g3) {
 			var x = _g2++;
-			var shore = x < 2 || x >= width - 2 || y < 2 || y >= height - 2 || (x < 5 || x >= width - 5) && (y < 5 || y >= height - 5);
+			var shore = x < 2 || x >= mainlandWidth - 2 || y < 2 || y >= mainlandHeight - 2 || (x < 5 || x >= mainlandWidth - 5) && (y < 5 || y >= mainlandHeight - 5);
 			var river = y >= 2 && y < height - 2 && Math.abs(x - Terrain.riverCenter(y)) <= 1;
 			var lake = Terrain.ellipse(x,y,47,28,6,4) || Terrain.ellipse(x,y,33,37,7,4);
 			var coastalBay = x < 6 && y >= 11 && y < 20 || x >= 54 && y >= 35;
@@ -8093,6 +8286,29 @@ var Terrain = function(width,height) {
 	var p_y = 36;
 	this.rocks[p_y * width + p_x] = true;
 	this.referenceIslands();
+	var _g = 0;
+	var _g1 = [{ name : "Pine Isle", x : 70, y : 10, rx : 8, ry : 6},{ name : "Goldhaven", x : 74, y : 34, rx : 7, ry : 7},{ name : "Southwatch", x : 43, y : 52, rx : 10, ry : 5}];
+	while(_g < _g1.length) {
+		var island = _g1[_g];
+		++_g;
+		if(island.x + island.rx >= width - 2 || island.y + island.ry >= height - 2) {
+			continue;
+		}
+		this.islands.push(island);
+		var _g2 = island.y - island.ry;
+		var _g3 = island.y + island.ry + 1;
+		while(_g2 < _g3) {
+			var y = _g2++;
+			var _g4 = island.x - island.rx;
+			var _g5 = island.x + island.rx + 1;
+			while(_g4 < _g5) {
+				var x = _g4++;
+				if(Terrain.ellipse(x,y,island.x,island.y,island.rx,island.ry)) {
+					this.paintLand(x,y,x + 1,y + 1,0);
+				}
+			}
+		}
+	}
 	var _g = 0;
 	var _g1 = width * height;
 	while(_g < _g1) {
@@ -8416,6 +8632,519 @@ TerrainView.__super__ = openfl_display_Sprite;
 TerrainView.prototype = $extend(openfl_display_Sprite.prototype,{
 	__class__: TerrainView
 });
+var TransportBoat = function(cx,cy) {
+	this.facing = 1;
+	this.clock = 0;
+	this.ring = new openfl_display_Sprite();
+	this.deck = [];
+	this.unloadRetry = 0;
+	this.route = [];
+	this.passengers = [];
+	this.selected = false;
+	Combatant.call(this,false,240);
+	this.set_x(cx * 32 + 16);
+	this.set_y(cy * 32 + 16);
+	this.frames = Art.frames("player-boat",256);
+	this.ring.get_graphics().lineStyle(2,12907641);
+	this.ring.get_graphics().drawEllipse(-42,-22,84,44);
+	this.addChild(this.ring);
+	this.body = new openfl_display_Bitmap(this.frames[0],0,false);
+	this.body.set_scaleX(this.body.set_scaleY(0.5));
+	this.body.set_x(this.body.set_y(-64));
+	this.addChild(this.body);
+	var image = new openfl_display_Bitmap(null,0,false);
+	image.set_scaleX(image.set_scaleY(0.32));
+	this.deck.push(image);
+	this.addChild(image);
+	var image = new openfl_display_Bitmap(null,0,false);
+	image.set_scaleX(image.set_scaleY(0.32));
+	this.deck.push(image);
+	this.addChild(image);
+	var image = new openfl_display_Bitmap(null,0,false);
+	image.set_scaleX(image.set_scaleY(0.32));
+	this.deck.push(image);
+	this.addChild(image);
+	var image = new openfl_display_Bitmap(null,0,false);
+	image.set_scaleX(image.set_scaleY(0.32));
+	this.deck.push(image);
+	this.addChild(image);
+	this.mouseEnabled = this.mouseChildren = false;
+	this.update(0);
+};
+$hxClasses["TransportBoat"] = TransportBoat;
+TransportBoat.__name__ = "TransportBoat";
+TransportBoat.__super__ = Combatant;
+TransportBoat.prototype = $extend(Combatant.prototype,{
+	get_moving: function() {
+		return this.route.length > 0;
+	}
+	,containsPoint: function(wx,wy) {
+		var px = (wx - this.get_x() - this.body.get_x()) / this.body.get_scaleX() | 0;
+		var py = (wy - this.get_y() - this.body.get_y()) / this.body.get_scaleY() | 0;
+		if(!this.get_dead() && px >= 0 && py >= 0 && px < 256 && py < 256) {
+			return this.body.get_bitmapData().getPixel32(px,py) >>> 24 >= 32;
+		} else {
+			return false;
+		}
+	}
+	,update: function(dt) {
+		var budget = 105 * dt;
+		while(this.route.length > 0 && budget > 0) {
+			var p = this.route[0];
+			var dx = p.x - this.get_x();
+			var dy = p.y - this.get_y();
+			var d = Math.sqrt(dx * dx + dy * dy);
+			if(Math.abs(dx) > 0.1) {
+				this.facing = dx < 0 ? -1 : 1;
+			}
+			if(d <= budget) {
+				this.set_x(p.x);
+				this.set_y(p.y);
+				this.route.shift();
+				budget -= d;
+			} else {
+				this.set_x(this.get_x() + dx / d * budget);
+				this.set_y(this.get_y() + dy / d * budget);
+				budget = 0;
+			}
+		}
+		this.clock += dt;
+		this.unloadRetry = Math.max(0,this.unloadRetry - dt);
+		this.body.set_bitmapData(this.frames[(this.clock * 6 | 0) % this.frames.length]);
+		this.body.set_scaleX(this.facing * 0.5);
+		this.body.set_x(-64 * this.facing);
+		var _g = 0;
+		var _g1 = this.deck.length;
+		while(_g < _g1) {
+			var i = _g++;
+			var image = this.deck[i];
+			image.set_visible(i < this.passengers.length);
+			if(!image.get_visible()) {
+				continue;
+			}
+			image.set_bitmapData(this.passengers[i].passengerFrame(this.clock));
+			image.set_x((i % 2 == 0 ? -12 : 12) - 30.72);
+			image.set_y((i < 2 ? -10 : 2) - 40.96);
+		}
+		var _g = 0;
+		var _g1 = this.passengers;
+		while(_g < _g1.length) {
+			var u = _g1[_g];
+			++_g;
+			u.set_x(this.get_x());
+			u.set_y(this.get_y());
+		}
+		this.ring.set_visible(this.selected && !this.get_dead());
+		this.drawHealth(dt,-50,this.selected);
+	}
+	,__class__: TransportBoat
+	,__properties__: $extend(Combatant.prototype.__properties__,{get_moving:"get_moving"})
+});
+var TransportSystem = function(world) {
+	this.wrecks = [];
+	this.error = "";
+	this.world = world;
+	this.addBoat(58,24);
+	this.addBoat(35,43);
+};
+$hxClasses["TransportSystem"] = TransportSystem;
+TransportSystem.__name__ = "TransportSystem";
+TransportSystem.prototype = {
+	addBoat: function(cx,cy) {
+		if(!this.world.sea.navigation.free(cx,cy)) {
+			return null;
+		}
+		var boat = new TransportBoat(cx,cy);
+		this.world.boats.push(boat);
+		this.world.objects.addChild(boat);
+		return boat;
+	}
+	,boardingCount: function(boat) {
+		var _g = [];
+		var _g1 = 0;
+		var _g2 = this.world.units;
+		while(_g1 < _g2.length) {
+			var u = _g2[_g1];
+			++_g1;
+			if(!u.get_dead() && u.transportTarget == boat) {
+				_g.push(u);
+			}
+		}
+		return _g.length;
+	}
+	,shores: function(boat) {
+		var cx = boat.get_x() / 32 | 0;
+		var cy = boat.get_y() / 32 | 0;
+		var _g = [];
+		var d_x = 1;
+		var d_y = 0;
+		if(this.world.navigation.free(cx + d_x,cy + d_y) && this.world.navigation.elevation[(cy + d_y) * 84 + cx + d_x] == 0) {
+			_g.push({ x : cx + d_x, y : cy + d_y});
+		}
+		var d_x = -1;
+		var d_y = 0;
+		if(this.world.navigation.free(cx + d_x,cy + d_y) && this.world.navigation.elevation[(cy + d_y) * 84 + cx + d_x] == 0) {
+			_g.push({ x : cx + d_x, y : cy + d_y});
+		}
+		var d_x = 0;
+		var d_y = 1;
+		if(this.world.navigation.free(cx + d_x,cy + d_y) && this.world.navigation.elevation[(cy + d_y) * 84 + cx + d_x] == 0) {
+			_g.push({ x : cx + d_x, y : cy + d_y});
+		}
+		var d_x = 0;
+		var d_y = -1;
+		if(this.world.navigation.free(cx + d_x,cy + d_y) && this.world.navigation.elevation[(cy + d_y) * 84 + cx + d_x] == 0) {
+			_g.push({ x : cx + d_x, y : cy + d_y});
+		}
+		return _g;
+	}
+	,board: function(u,boat) {
+		this.error = "Select your units and a friendly boat";
+		if(u == null || boat == null || u.get_dead() || boat.get_dead() || u.team != boat.team || u.neutral || u.transport != null || this.world.units.indexOf(u) < 0 || this.world.boats.indexOf(boat) < 0) {
+			return false;
+		}
+		if(u.transportTarget == boat) {
+			return true;
+		}
+		if(boat.get_moving() || boat.landTarget != null) {
+			this.error = "Wait for the boat to stop at shore";
+			return false;
+		}
+		if(boat.passengers.length + this.boardingCount(boat) >= 4) {
+			this.error = "Boat full · Four passengers maximum";
+			return false;
+		}
+		if(!this.world.leaveTower(u)) {
+			this.error = "No exit from the tower";
+			return false;
+		}
+		var best = null;
+		var length = 2147483647;
+		var sx = u.get_x() / 32 | 0;
+		var sy = u.get_y() / 32 | 0;
+		var _g = 0;
+		var _g1 = this.shores(boat);
+		while(_g < _g1.length) {
+			var cell = _g1[_g];
+			++_g;
+			var path = this.world.navigation.path(sx,sy,cell.x,cell.y);
+			if((path.length > 0 || sx == cell.x && sy == cell.y) && path.length < length) {
+				length = path.length;
+				best = cell;
+			}
+		}
+		if(best == null) {
+			this.error = "No reachable shore beside this boat";
+			return false;
+		}
+		this.world.cancelTask(u);
+		this.world.routeTo(u,best);
+		u.transportTarget = boat;
+		u.boardingCell = best;
+		u.task = "toBoat";
+		return true;
+	}
+	,stop: function(boat) {
+		if(boat == null || boat.get_dead()) {
+			return;
+		}
+		var _g = 0;
+		var _g1 = this.world.units;
+		while(_g < _g1.length) {
+			var u = _g1[_g];
+			++_g;
+			if(u.transportTarget == boat) {
+				this.world.cancelTask(u);
+				u.route = [];
+			}
+		}
+		boat.route = [];
+		boat.landTarget = null;
+		boat.beach = null;
+		boat.set_x((boat.get_x() / 32 | 0) * 32 + 16);
+		boat.set_y((boat.get_y() / 32 | 0) * 32 + 16);
+		boat.update(0);
+	}
+	,sail: function(boat,cx,cy) {
+		this.error = "Choose reachable open water or an island beach";
+		if(boat == null || boat.get_dead() || this.world.boats.indexOf(boat) < 0 || cx < 0 || cy < 0 || cx >= 84 || cy >= 60) {
+			return false;
+		}
+		if(this.boardingCount(boat) > 0) {
+			this.error = "Wait for passengers to finish boarding";
+			return false;
+		}
+		var sx = boat.get_x() / 32 | 0;
+		var sy = boat.get_y() / 32 | 0;
+		if(this.world.sea.navigation.free(cx,cy)) {
+			var path = this.world.sea.navigation.path(sx,sy,cx,cy);
+			if(path.length == 0 && (sx != cx || sy != cy)) {
+				return false;
+			}
+			boat.route = [new openfl_geom_Point(sx * 32 + 16,sy * 32 + 16)];
+			var _g = 0;
+			while(_g < path.length) {
+				var cell = path[_g];
+				++_g;
+				boat.route.push(new openfl_geom_Point(cell.x * 32 + 16,cell.y * 32 + 16));
+			}
+			boat.landTarget = null;
+			boat.beach = null;
+			return true;
+		}
+		if(this.world.terrain.water[cy * 84 + cx] && !this.world.terrain.bridges[cy * 84 + cx]) {
+			return false;
+		}
+		var goal = this.world.navigation.nearest(cx,cy);
+		var crossing = this.world.sea.crossing(sx,sy,this.world.navigation,goal);
+		if(crossing == null) {
+			this.error = "No reachable beach for that destination";
+			return false;
+		}
+		boat.route = [new openfl_geom_Point(sx * 32 + 16,sy * 32 + 16)];
+		var _g = 0;
+		var _g1 = crossing.cells.length - 1;
+		while(_g < _g1) {
+			var i = _g++;
+			var cell = crossing.cells[i];
+			boat.route.push(new openfl_geom_Point(cell.x * 32 + 16,cell.y * 32 + 16));
+		}
+		boat.landTarget = goal;
+		boat.beach = crossing.beach;
+		boat.unloadRetry = 0;
+		return true;
+	}
+	,occupied: function(cx,cy) {
+		var _g = 0;
+		var _g1 = this.world.allUnits();
+		while(_g < _g1.length) {
+			var u = _g1[_g];
+			++_g;
+			if(!u.get_dead() && u.transport == null && ((u.get_x() / 32 | 0) == cx && (u.get_y() / 32 | 0) == cy || u.workCell != null && u.workCell.x == cx && u.workCell.y == cy || u.boardingCell != null && u.boardingCell.x == cx && u.boardingCell.y == cy || u.landing != null && u.landing.x == cx && u.landing.y == cy)) {
+				return true;
+			}
+		}
+		return false;
+	}
+	,unload: function(boat) {
+		this.error = "Stop beside a clear beach to unload";
+		if(boat == null || boat.get_dead() || boat.get_moving() || boat.passengers.length == 0) {
+			return false;
+		}
+		var candidates = this.shores(boat);
+		var beach = null;
+		if(boat.beach != null) {
+			var _g = 0;
+			while(_g < candidates.length) {
+				var cell = candidates[_g];
+				++_g;
+				if(cell.x == boat.beach.x && cell.y == boat.beach.y) {
+					beach = cell;
+				}
+			}
+		}
+		if(beach == null) {
+			var _g = 0;
+			while(_g < candidates.length) {
+				var cell = candidates[_g];
+				++_g;
+				if(boat.landTarget != null && this.world.navigation.path(cell.x,cell.y,boat.landTarget.x,boat.landTarget.y).length == 0 && (cell.x != boat.landTarget.x || cell.y != boat.landTarget.y)) {
+					continue;
+				}
+				beach = cell;
+				break;
+			}
+		}
+		if(beach == null || this.occupied(beach.x,beach.y)) {
+			this.error = "Landing blocked · Clear space on the beach";
+			return false;
+		}
+		var landing = [];
+		var _g = 0;
+		while(_g < 5) {
+			var r = _g++;
+			var _g1 = -r;
+			var _g2 = r + 1;
+			while(_g1 < _g2) {
+				var dy = _g1++;
+				var _g3 = -r;
+				var _g4 = r + 1;
+				while(_g3 < _g4) {
+					var dx = _g3++;
+					if(r > 0 && Math.abs(dx) != r && Math.abs(dy) != r || landing.length >= boat.passengers.length) {
+						continue;
+					}
+					var x = beach.x + dx;
+					var y = beach.y + dy;
+					if(!this.world.navigation.free(x,y) || this.occupied(x,y)) {
+						continue;
+					}
+					if((x != beach.x || y != beach.y) && this.world.navigation.path(beach.x,beach.y,x,y).length == 0) {
+						continue;
+					}
+					landing.push({ x : x, y : y});
+				}
+			}
+		}
+		var destinations_h = { };
+		var _g = 0;
+		while(_g < landing.length) {
+			var cell = landing[_g];
+			++_g;
+			var unit = boat.passengers.shift();
+			unit.transport = null;
+			unit.set_x(cell.x * 32 + 16);
+			unit.set_y(cell.y * 32 + 16);
+			unit.set_visible(true);
+			this.world.cancelTask(unit);
+			unit.route = [];
+			if(boat.landTarget != null) {
+				var placed = false;
+				var _g1 = 0;
+				while(_g1 < 4) {
+					var r = _g1++;
+					var _g2 = -r;
+					var _g3 = r + 1;
+					while(_g2 < _g3) {
+						var dy = _g2++;
+						var _g4 = -r;
+						var _g5 = r + 1;
+						while(_g4 < _g5) {
+							var dx = _g4++;
+							if(placed || r > 0 && Math.abs(dx) != r && Math.abs(dy) != r) {
+								continue;
+							}
+							var x = boat.landTarget.x + dx;
+							var y = boat.landTarget.y + dy;
+							var id = y * 84 + x;
+							if(!this.world.navigation.free(x,y) || destinations_h.hasOwnProperty(id) || this.occupied(x,y)) {
+								continue;
+							}
+							if(this.world.routeTo(unit,{ x : x, y : y})) {
+								unit.task = "moving";
+								destinations_h[id] = true;
+								placed = true;
+							}
+						}
+					}
+					if(placed) {
+						break;
+					}
+				}
+			}
+			unit.update(0);
+		}
+		if(boat.passengers.length == 0) {
+			boat.landTarget = null;
+			boat.beach = null;
+		}
+		this.error = boat.passengers.length == 0 ? "Passengers ashore" : "Some passengers are waiting for landing space";
+		return landing.length > 0;
+	}
+	,finishBoarding: function() {
+		var _g = 0;
+		var _g1 = this.world.units;
+		while(_g < _g1.length) {
+			var u = _g1[_g];
+			++_g;
+			if(u.transportTarget != null && !u.get_dead() && !u.get_moving()) {
+				var boat = u.transportTarget;
+				if(boat.get_dead() || boat.get_moving() || boat.passengers.length >= 4 || u.boardingCell == null || openfl_geom_Point.distance(new openfl_geom_Point(u.get_x(),u.get_y()),new openfl_geom_Point(u.boardingCell.x * 32 + 16,u.boardingCell.y * 32 + 16)) > 2) {
+					this.world.cancelTask(u);
+					continue;
+				}
+				this.world.cancelTask(u);
+				u.route = [];
+				u.transport = boat;
+				u.task = "aboard";
+				u.selected = false;
+				u.set_x(boat.get_x());
+				u.set_y(boat.get_y());
+				u.set_visible(false);
+				boat.passengers.push(u);
+			}
+		}
+	}
+	,update: function(dt) {
+		var _g = 0;
+		var _g1 = this.world.boats;
+		while(_g < _g1.length) {
+			var boat = _g1[_g];
+			++_g;
+			boat.update(dt);
+			if(dt > 0 && !boat.get_dead() && !boat.get_moving() && boat.landTarget != null) {
+				if(boat.passengers.length == 0) {
+					boat.landTarget = null;
+					boat.beach = null;
+				} else if(boat.unloadRetry <= 0) {
+					this.unload(boat);
+					boat.unloadRetry = 1;
+				}
+			}
+		}
+	}
+	,prepareDeaths: function() {
+		var _g = 0;
+		var _g1 = this.world.boats;
+		while(_g < _g1.length) {
+			var boat = _g1[_g];
+			++_g;
+			if(boat.get_dead()) {
+				var _g2 = 0;
+				var _g3 = boat.passengers;
+				while(_g2 < _g3.length) {
+					var u = _g3[_g2];
+					++_g2;
+					u.health = 0;
+				}
+				var _g4 = 0;
+				var _g5 = this.world.units;
+				while(_g4 < _g5.length) {
+					var u1 = _g5[_g4];
+					++_g4;
+					if(u1.transportTarget == boat) {
+						this.world.cancelTask(u1);
+						u1.route = [];
+					}
+				}
+			}
+		}
+	}
+	,removeDead: function() {
+		var _g = 0;
+		var _g1 = this.world.boats.slice();
+		while(_g < _g1.length) {
+			var boat = _g1[_g];
+			++_g;
+			if(boat.get_dead()) {
+				boat.selected = false;
+				boat.route = [];
+				boat.passengers = [];
+				boat.landTarget = null;
+				boat.update(0);
+				HxOverrides.remove(this.world.boats,boat);
+				this.wrecks.push({ boat : boat, elapsed : 0});
+			}
+		}
+	}
+	,updateWrecks: function(dt) {
+		var _g = 0;
+		var _g1 = this.wrecks.slice();
+		while(_g < _g1.length) {
+			var wreck = _g1[_g];
+			++_g;
+			wreck.elapsed += dt;
+			wreck.boat.set_alpha(Math.max(0,1 - wreck.elapsed / 2));
+			wreck.boat.set_rotation(wreck.elapsed * 8);
+			wreck.boat.set_scaleY(Math.max(0.1,1 - wreck.elapsed * 0.35));
+			if(wreck.elapsed >= 2) {
+				this.world.objects.removeChild(wreck.boat);
+				HxOverrides.remove(this.wrecks,wreck);
+			}
+		}
+	}
+	,__class__: TransportSystem
+};
 var ValueType = $hxEnums["ValueType"] = { __ename__:"ValueType",__constructs__:null
 	,TNull: {_hx_name:"TNull",_hx_index:0,__enum__:"ValueType",toString:$estr}
 	,TInt: {_hx_name:"TInt",_hx_index:1,__enum__:"ValueType",toString:$estr}
@@ -8798,7 +9527,10 @@ $hxClasses["Unit"] = Unit;
 Unit.__name__ = "Unit";
 Unit.__super__ = Combatant;
 Unit.prototype = $extend(Combatant.prototype,{
-	get_roofOffset: function() {
+	passengerFrame: function(time) {
+		return this.idle[(time * 8 | 0) % this.idle.length];
+	}
+	,get_roofOffset: function() {
 		if(this.garrison == null) {
 			return 0;
 		} else {
@@ -8812,7 +9544,9 @@ Unit.prototype = $extend(Combatant.prototype,{
 		return this.get_y() + this.get_roofOffset();
 	}
 	,damage: function(amount) {
-		if(this.garrison != null && !this.garrison.get_dead()) {
+		if(this.transport != null && !this.transport.get_dead()) {
+			this.transport.damage(amount);
+		} else if(this.garrison != null && !this.garrison.get_dead()) {
 			this.garrison.damage(amount);
 		} else {
 			Combatant.prototype.damage.call(this,amount);
@@ -8874,6 +9608,14 @@ Unit.prototype = $extend(Combatant.prototype,{
 		return this.route.length > 0;
 	}
 	,update: function(dt) {
+		if(this.transport != null) {
+			this.set_x(this.transport.get_x());
+			this.set_y(this.transport.get_y());
+			this.set_visible(false);
+			this.selected = false;
+			return;
+		}
+		this.set_visible(true);
 		var budget = (this.sailing ? 100 : this.speed) * dt;
 		while(this.route.length > 0 && budget > 0) {
 			var p = this.route[0];
@@ -8971,7 +9713,7 @@ var UnitDeath = function(unit,frame,size,foot,facing) {
 	this.set_y(unit.get_y() + 0.2);
 	this.roof = unit.get_roofOffset();
 	this.direction = facing;
-	this.water = unit.sailing;
+	this.water = unit.sailing || unit.transport != null;
 	this.body = new openfl_display_Bitmap(frame,0,false);
 	this.body.set_scaleX(facing * 0.5);
 	this.body.set_scaleY(0.5);
@@ -9057,6 +9799,7 @@ var World = function() {
 	_g.h["Wood"] = 0;
 	_g.h["Food"] = 80;
 	this.redStock = _g;
+	this.boats = [];
 	var _g = new haxe_ds_StringMap();
 	_g.h["Gold"] = 0;
 	_g.h["Wood"] = 0;
@@ -9081,7 +9824,7 @@ var World = function() {
 	openfl_display_Sprite.call(this);
 	this.mouseEnabled = false;
 	this.mouseChildren = false;
-	this.terrain = new Terrain(60,45);
+	this.terrain = new Terrain(84,60);
 	this.navigation = this.terrain.navigation;
 	this.addChild(new TerrainView(this.terrain));
 	this.marks = new openfl_display_Sprite();
@@ -9159,12 +9902,12 @@ var World = function() {
 	p_y += 10;
 	this.addResource("Wood",p_x,p_y,180);
 	var _g = 0;
-	while(_g < 45) {
+	while(_g < 60) {
 		var y = _g++;
 		var _g1 = 0;
-		while(_g1 < 60) {
+		while(_g1 < 84) {
 			var x = _g1++;
-			if(this.terrain.rocks[y * 60 + x]) {
+			if(this.terrain.rocks[y * 84 + x]) {
 				this.addRock(x,y,(x + y) % 3);
 			}
 		}
@@ -9172,29 +9915,29 @@ var World = function() {
 	var p_x = 44;
 	var p_y = 25;
 	if(this.navigation.free(p_x,p_y)) {
-		this.navigation.blocked[p_y * 60 + p_x] = true;
-		this.terrain.rocks[p_y * 60 + p_x] = true;
+		this.navigation.blocked[p_y * 84 + p_x] = true;
+		this.terrain.rocks[p_y * 84 + p_x] = true;
 		this.addRock(p_x,p_y,0);
 	}
 	var p_x = 45;
 	var p_y = 26;
 	if(this.navigation.free(p_x,p_y)) {
-		this.navigation.blocked[p_y * 60 + p_x] = true;
-		this.terrain.rocks[p_y * 60 + p_x] = true;
+		this.navigation.blocked[p_y * 84 + p_x] = true;
+		this.terrain.rocks[p_y * 84 + p_x] = true;
 		this.addRock(p_x,p_y,0);
 	}
 	var p_x = 27;
 	var p_y = 33;
 	if(this.navigation.free(p_x,p_y)) {
-		this.navigation.blocked[p_y * 60 + p_x] = true;
-		this.terrain.rocks[p_y * 60 + p_x] = true;
+		this.navigation.blocked[p_y * 84 + p_x] = true;
+		this.terrain.rocks[p_y * 84 + p_x] = true;
 		this.addRock(p_x,p_y,0);
 	}
 	var p_x = 49;
 	var p_y = 34;
 	if(this.navigation.free(p_x,p_y)) {
-		this.navigation.blocked[p_y * 60 + p_x] = true;
-		this.terrain.rocks[p_y * 60 + p_x] = true;
+		this.navigation.blocked[p_y * 84 + p_x] = true;
+		this.terrain.rocks[p_y * 84 + p_x] = true;
 		this.addRock(p_x,p_y,0);
 	}
 	var p_x = 12;
@@ -9225,6 +9968,29 @@ var World = function() {
 	this.addResource("Gold",10,19,450);
 	this.addResource("Wood",9,20,240);
 	this.addReferenceSettlement();
+	var _g = 0;
+	var _g1 = this.terrain.islands;
+	while(_g < _g1.length) {
+		var island = _g1[_g];
+		++_g;
+		var p_x = -3;
+		var p_y = -1;
+		this.addResource("Wood",island.x + p_x,island.y + p_y,180,"tree-pine",{ x : island.x, y : island.y});
+		var p_x1 = -2;
+		var p_y1 = -2;
+		this.addResource("Wood",island.x + p_x1,island.y + p_y1,180,"tree-pine",{ x : island.x, y : island.y});
+		var p_x2 = 2;
+		var p_y2 = -2;
+		this.addResource("Wood",island.x + p_x2,island.y + p_y2,180,"tree-pine",{ x : island.x, y : island.y});
+		var p_x3 = 3;
+		var p_y3 = -1;
+		this.addResource("Wood",island.x + p_x3,island.y + p_y3,180,"tree-pine",{ x : island.x, y : island.y});
+		this.addResource("Gold",island.x + 2,island.y + 1,500,"tree",{ x : island.x, y : island.y});
+		this.addResource("Food",island.x - 2,island.y + 2,100,"tree",{ x : island.x, y : island.y});
+		this.addScenery("scenery-bush-" + 1,island.x - 3,island.y + 3);
+		this.addScenery("scenery-bush-" + 2,island.x - 3 + 2,island.y + 3);
+		this.addScenery("scenery-bush-" + 3,island.x - 3 + 4,island.y + 3);
+	}
 	this.spawn("Peasant",14,14);
 	this.spawn("Peasant",15,14);
 	this.spawn("Peasant",14,15);
@@ -9247,14 +10013,14 @@ var World = function() {
 	this.addScenery("scenery-rock-" + 4,14,37);
 	var duckCount = 0;
 	var _g = 10;
-	var _g1 = 40;
+	var _g1 = 55;
 	while(_g < _g1) {
 		var y = _g++;
 		var _g2 = 4;
-		var _g3 = 56;
+		var _g3 = 80;
 		while(_g2 < _g3) {
 			var x = _g2++;
-			if(this.terrain.water[y * 60 + x] && (x * 7 + y * 11) % 79 == 0 && duckCount < 12) {
+			if(this.terrain.water[y * 84 + x] && (x * 7 + y * 11) % 79 == 0 && duckCount < 12) {
 				this.addScenery(duckCount % 2 == 0 ? "duck-1" : "scenery-water-" + (duckCount % 4 + 1),x,y);
 				++duckCount;
 			}
@@ -9278,11 +10044,12 @@ var World = function() {
 				var _g5 = b.cellX - (b.footprintWidth / 2 | 0) + b.footprintWidth;
 				while(_g4 < _g5) {
 					var x = _g4++;
-					this.sea.navigation.blocked[y * 60 + x] = true;
+					this.sea.navigation.blocked[y * 84 + x] = true;
 				}
 			}
 		}
 	}
+	this.transport = new TransportSystem(this);
 };
 $hxClasses["World"] = World;
 World.__name__ = "World";
@@ -9314,6 +10081,18 @@ World.prototype = $extend(openfl_display_Sprite.prototype,{
 		this.objects.addChild(item);
 		return item;
 	}
+	,boatAt: function(wx,wy) {
+		var _g = 0;
+		var _g1 = this.boats;
+		while(_g < _g1.length) {
+			var boat = _g1[_g];
+			++_g;
+			if(boat.containsPoint(wx,wy)) {
+				return boat;
+			}
+		}
+		return null;
+	}
 	,teamStock: function(team) {
 		if(team == "Red") {
 			return this.redStock;
@@ -9322,7 +10101,7 @@ World.prototype = $extend(openfl_display_Sprite.prototype,{
 		}
 	}
 	,dropOff: function(u) {
-		if(u.team == "Blue") {
+		if(u.team == "Blue" && this.castle != null && !this.castle.get_dead() && this.adjacentSpot(u,this.castle) != null) {
 			return this.castle;
 		}
 		var _g = [];
@@ -9331,7 +10110,7 @@ World.prototype = $extend(openfl_display_Sprite.prototype,{
 		while(_g1 < _g2.length) {
 			var b = _g2[_g1];
 			++_g1;
-			if(b.team == u.team && !b.get_dead() && !b.get_constructing()) {
+			if(b.team == u.team && !b.get_dead() && !b.get_constructing() && (u.team != "Blue" || b.kind == "Castle")) {
 				_g.push(b);
 			}
 		}
@@ -9345,11 +10124,15 @@ World.prototype = $extend(openfl_display_Sprite.prototype,{
 			}
 			return openfl_geom_Point.distance(new openfl_geom_Point(u.get_x(),u.get_y()),new openfl_geom_Point(a.get_x(),a.get_y())) - openfl_geom_Point.distance(new openfl_geom_Point(u.get_x(),u.get_y()),new openfl_geom_Point(b.get_x(),b.get_y())) | 0;
 		});
-		if(bases.length > 0) {
-			return bases[0];
-		} else {
-			return null;
+		var _g = 0;
+		while(_g < bases.length) {
+			var b = bases[_g];
+			++_g;
+			if(this.adjacentSpot(u,b) != null) {
+				return b;
+			}
 		}
+		return null;
 	}
 	,configureHerds: function() {
 		var _g = [];
@@ -9395,8 +10178,8 @@ World.prototype = $extend(openfl_display_Sprite.prototype,{
 						var dx = _g3++;
 						var cx = r.cellX + dx;
 						var cy = r.cellY + dy;
-						var id = cy * 60 + cx;
-						if(!this.navigation.free(cx,cy) || claimed_h.hasOwnProperty(id) || this.navigation.elevation[id] != this.navigation.elevation[r.cellY * 60 + r.cellX]) {
+						var id = cy * 84 + cx;
+						if(!this.navigation.free(cx,cy) || claimed_h.hasOwnProperty(id) || this.navigation.elevation[id] != this.navigation.elevation[r.cellY * 84 + r.cellX]) {
 							continue;
 						}
 						var d = dx * dx + dy * dy;
@@ -9407,7 +10190,7 @@ World.prototype = $extend(openfl_display_Sprite.prototype,{
 					}
 				}
 				if(best != null) {
-					claimed_h[best.y * 60 + best.x] = true;
+					claimed_h[best.y * 84 + best.x] = true;
 					r.sheep[i].setHome(best.x * 32 + 16,best.y * 32 + 16,this.objects);
 				}
 				r.sheep[i].neighbors = this.grazingSheep;
@@ -9437,8 +10220,8 @@ World.prototype = $extend(openfl_display_Sprite.prototype,{
 		var b = new Building("Wall",cx,cy,1,1,enemy,false,tile);
 		this.buildings.push(b);
 		this.objects.addChild(b);
-		this.wallCells.h[cy * 60 + cx] = b;
-		this.navigation.blocked[cy * 60 + cx] = true;
+		this.wallCells.h[cy * 84 + cx] = b;
+		this.navigation.blocked[cy * 84 + cx] = true;
 		return b;
 	}
 	,addFortifications: function() {
@@ -9551,7 +10334,7 @@ World.prototype = $extend(openfl_display_Sprite.prototype,{
 			var _g3 = cx - (w / 2 | 0) + w;
 			while(_g2 < _g3) {
 				var x = _g2++;
-				this.navigation.blocked[y * 60 + x] = true;
+				this.navigation.blocked[y * 84 + x] = true;
 			}
 		}
 	}
@@ -9585,11 +10368,11 @@ World.prototype = $extend(openfl_display_Sprite.prototype,{
 		sprite.addChild(rock);
 		this.objects.addChild(sprite);
 	}
-	,addResource: function(kind,cx,cy,amount,treeArt) {
+	,addResource: function(kind,cx,cy,amount,treeArt,origin) {
 		if(treeArt == null) {
 			treeArt = "tree";
 		}
-		var spot = this.navigation.nearestReachable(29,24,cx,cy);
+		var spot = this.navigation.nearestReachable(origin == null ? 29 : origin.x,origin == null ? 24 : origin.y,cx,cy);
 		if(spot == null) {
 			return;
 		}
@@ -9598,7 +10381,7 @@ World.prototype = $extend(openfl_display_Sprite.prototype,{
 		var node = new ResourceNode(kind,cx,cy,amount,treeArt);
 		this.resources.push(node);
 		this.objects.addChild(node);
-		this.navigation.blocked[cy * 60 + cx] = true;
+		this.navigation.blocked[cy * 84 + cx] = true;
 	}
 	,addReferenceSettlement: function() {
 		this.building("Castle",-8,22,4,2,false);
@@ -9636,37 +10419,37 @@ World.prototype = $extend(openfl_display_Sprite.prototype,{
 		this.decoration("bush",128,128,p_x,p_y,false);
 		var p_x = 2;
 		var p_y = 30;
-		if(this.terrain.water[p_y * 60 + p_x]) {
+		if(this.terrain.water[p_y * 84 + p_x]) {
 			this.decoration("water-rock",64,64,p_x,p_y,true);
 		}
 		var p_x = 10;
 		var p_y = 38;
-		if(this.terrain.water[p_y * 60 + p_x]) {
+		if(this.terrain.water[p_y * 84 + p_x]) {
 			this.decoration("water-rock",64,64,p_x,p_y,true);
 		}
 		var p_x = 14;
 		var p_y = 39;
-		if(this.terrain.water[p_y * 60 + p_x]) {
+		if(this.terrain.water[p_y * 84 + p_x]) {
 			this.decoration("water-rock",64,64,p_x,p_y,true);
 		}
 		var p_x = 15;
 		var p_y = 41;
-		if(this.terrain.water[p_y * 60 + p_x]) {
+		if(this.terrain.water[p_y * 84 + p_x]) {
 			this.decoration("water-rock",64,64,p_x,p_y,true);
 		}
 		var p_x = 24;
 		var p_y = 33;
-		if(this.terrain.water[p_y * 60 + p_x]) {
+		if(this.terrain.water[p_y * 84 + p_x]) {
 			this.decoration("water-rock",64,64,p_x,p_y,true);
 		}
 		var p_x = 8;
 		var p_y = 42;
-		if(this.terrain.water[p_y * 60 + p_x]) {
+		if(this.terrain.water[p_y * 84 + p_x]) {
 			this.decoration("water-rock",64,64,p_x,p_y,true);
 		}
 		var p_x = 22;
 		var p_y = 29;
-		if(this.terrain.water[p_y * 60 + p_x]) {
+		if(this.terrain.water[p_y * 84 + p_x]) {
 			this.decoration("water-rock",64,64,p_x,p_y,true);
 		}
 	}
@@ -9716,7 +10499,7 @@ World.prototype = $extend(openfl_display_Sprite.prototype,{
 					if(!this.navigation.free(cx,cy)) {
 						continue;
 					}
-					if(this.navigation.elevation[cy * 60 + cx] != this.navigation.elevation[b.cellY * 60 + b.cellX]) {
+					if(this.navigation.elevation[cy * 84 + cx] != this.navigation.elevation[b.cellY * 84 + b.cellX]) {
 						continue;
 					}
 					var occupied = false;
@@ -9775,10 +10558,10 @@ World.prototype = $extend(openfl_display_Sprite.prototype,{
 	}
 	,canPlace: function(kind,cx,cy) {
 		var c = World.buildCost(kind);
-		if(c == null || cx < 0 || cy < 0 || cx >= 60 || cy >= 45) {
+		if(c == null || cx < 0 || cy < 0 || cx >= 84 || cy >= 60) {
 			return false;
 		}
-		var level = this.navigation.elevation[cy * 60 + cx];
+		var level = this.navigation.elevation[cy * 84 + cx];
 		var _g = cy - c.h + 1;
 		var _g1 = cy + 1;
 		while(_g < _g1) {
@@ -9787,7 +10570,7 @@ World.prototype = $extend(openfl_display_Sprite.prototype,{
 			var _g3 = cx - (c.w / 2 | 0) + c.w;
 			while(_g2 < _g3) {
 				var x = _g2++;
-				if(!this.navigation.free(x,y) || this.navigation.elevation[y * 60 + x] != level || this.navigation.ramps[y * 60 + x] || this.terrain.bridges[y * 60 + x]) {
+				if(!this.navigation.free(x,y) || this.navigation.elevation[y * 84 + x] != level || this.navigation.ramps[y * 84 + x] || this.terrain.bridges[y * 84 + x]) {
 					return false;
 				}
 				var _g4 = 0;
@@ -9799,6 +10582,9 @@ World.prototype = $extend(openfl_display_Sprite.prototype,{
 						return false;
 					}
 					if(u.workCell != null && u.workCell.x == x && u.workCell.y == y) {
+						return false;
+					}
+					if(u.boardingCell != null && u.boardingCell.x == x && u.boardingCell.y == y) {
 						return false;
 					}
 					if(u.landing != null && u.landing.x == x && u.landing.y == y) {
@@ -9839,7 +10625,7 @@ World.prototype = $extend(openfl_display_Sprite.prototype,{
 			wallTile = 0;
 		}
 		this.buildError = "Choose clear, level land";
-		if(this.defeated || this.victory || u == null || u.get_dead() || u.kind != "Peasant" || this.allUnits().indexOf(u) < 0 || u.neutral || !this.canPlace(kind,cx,cy)) {
+		if(this.defeated || this.victory || u == null || u.get_dead() || u.transport != null || u.kind != "Peasant" || this.allUnits().indexOf(u) < 0 || u.neutral || !this.canPlace(kind,cx,cy)) {
 			return null;
 		}
 		var c = World.buildCost(kind);
@@ -9896,7 +10682,7 @@ World.prototype = $extend(openfl_display_Sprite.prototype,{
 		return b;
 	}
 	,resumeBuild: function(u,b) {
-		if(u.get_dead() || u.kind != "Peasant" || u.neutral || b.get_dead() || b.team != u.team || !b.get_constructing() || b.builder != null && b.builder != u && !b.builder.get_dead()) {
+		if(u.get_dead() || u.transport != null || u.kind != "Peasant" || u.neutral || b.get_dead() || b.team != u.team || !b.get_constructing() || b.builder != null && b.builder != u && !b.builder.get_dead()) {
 			return false;
 		}
 		var spot = this.adjacentSpot(u,b);
@@ -9911,7 +10697,7 @@ World.prototype = $extend(openfl_display_Sprite.prototype,{
 		return true;
 	}
 	,enterTower: function(u,b) {
-		if(u.get_dead() || u.kind != "Archer" || u.neutral || b.team != u.team || b.get_dead() || b.kind != "Tower" || b.get_constructing() || u.garrison == b) {
+		if(u.get_dead() || u.transport != null || u.kind != "Archer" || u.neutral || b.team != u.team || b.get_dead() || b.kind != "Tower" || b.get_constructing() || u.garrison == b) {
 			return false;
 		}
 		var reserved = b.archers.length;
@@ -9997,11 +10783,16 @@ World.prototype = $extend(openfl_display_Sprite.prototype,{
 		return best;
 	}
 	,castleAt: function(wx,wy) {
-		if(this.castle != null && !this.castle.get_dead()) {
-			return this.castle.containsPoint(wx,wy);
-		} else {
-			return false;
+		var _g = 0;
+		var _g1 = this.buildings;
+		while(_g < _g1.length) {
+			var b = _g1[_g];
+			++_g;
+			if(b.team == "Blue" && b.kind == "Castle" && !b.get_dead() && !b.get_constructing() && b.containsPoint(wx,wy)) {
+				return true;
+			}
 		}
+		return false;
 	}
 	,cancelTask: function(u) {
 		if(u.buildTarget != null && u.buildTarget.builder == u) {
@@ -10009,6 +10800,8 @@ World.prototype = $extend(openfl_display_Sprite.prototype,{
 		}
 		u.buildTarget = null;
 		u.towerTarget = null;
+		u.transportTarget = null;
+		u.boardingCell = null;
 		u.healTarget = null;
 		u.healing = 0;
 		u.attackTarget = null;
@@ -10054,7 +10847,7 @@ World.prototype = $extend(openfl_display_Sprite.prototype,{
 				}
 				var cx = node.cellX + dx;
 				var cy = node.cellY + dy;
-				if(!this.navigation.free(cx,cy) || this.navigation.elevation[cy * 60 + cx] != this.navigation.elevation[node.cellY * 60 + node.cellX]) {
+				if(!this.navigation.free(cx,cy) || this.navigation.elevation[cy * 84 + cx] != this.navigation.elevation[node.cellY * 84 + node.cellX]) {
 					continue;
 				}
 				var occupied = false;
@@ -10080,7 +10873,7 @@ World.prototype = $extend(openfl_display_Sprite.prototype,{
 		return best;
 	}
 	,gather: function(u,node) {
-		if(u.neutral || u.get_dead() || this.allUnits().indexOf(u) < 0 || u.kind != "Peasant" || node.get_depleted() && !node.get_renewable()) {
+		if(u.neutral || u.get_dead() || u.transport != null || this.allUnits().indexOf(u) < 0 || u.kind != "Peasant" || node.get_depleted() && !node.get_renewable()) {
 			return false;
 		}
 		var spot = this.workSpot(u,node);
@@ -10102,7 +10895,7 @@ World.prototype = $extend(openfl_display_Sprite.prototype,{
 	}
 	,returnCargo: function(u,stopAfter) {
 		var base = this.dropOff(u);
-		if(base == null || base.get_dead() || u.neutral || u.get_dead() || u.kind != "Peasant" || u.cargoAmount <= 0) {
+		if(base == null || base.get_dead() || u.neutral || u.get_dead() || u.transport != null || u.kind != "Peasant" || u.cargoAmount <= 0) {
 			return false;
 		}
 		var drop = this.adjacentSpot(u,base);
@@ -10121,7 +10914,7 @@ World.prototype = $extend(openfl_display_Sprite.prototype,{
 		return true;
 	}
 	,updateWorker: function(u,dt) {
-		if(u.kind != "Peasant" || u.get_moving() || u.task != "toCastle" && u.task != "toResource" && u.task != "gathering") {
+		if(u.transport != null || u.kind != "Peasant" || u.get_moving() || u.task != "toCastle" && u.task != "toResource" && u.task != "gathering") {
 			return;
 		}
 		if(u.task == "toCastle") {
@@ -10159,7 +10952,7 @@ World.prototype = $extend(openfl_display_Sprite.prototype,{
 			u.cargoAmount = node.take(10);
 			u.gatherTimer = 0;
 			if(node.get_depleted() && !node.get_renewable()) {
-				this.navigation.blocked[node.cellY * 60 + node.cellX] = false;
+				this.navigation.blocked[node.cellY * 84 + node.cellX] = false;
 			}
 			if(!this.returnCargo(u,false)) {
 				this.cancelTask(u);
@@ -10191,8 +10984,11 @@ World.prototype = $extend(openfl_display_Sprite.prototype,{
 		}
 	}
 	,attack: function(u,target) {
-		if(u.kind == "Monk" || u.get_dead() || u.sailing || target == null || target.get_dead() || !u.hostileTo(target) || this.allUnits().indexOf(u) < 0) {
+		if(u.kind == "Monk" || u.get_dead() || u.transport != null || u.sailing || target == null || target.get_dead() || !u.hostileTo(target) || this.allUnits().indexOf(u) < 0) {
 			return false;
+		}
+		if(((target) instanceof Unit) && target.transport != null) {
+			target = target.transport;
 		}
 		if(((target) instanceof Unit) && target.garrison != null) {
 			target = target.garrison;
@@ -10359,7 +11155,7 @@ World.prototype = $extend(openfl_display_Sprite.prototype,{
 			return false;
 		}
 		var steps = Math.ceil(distance / 8) | 0;
-		var level = this.navigation.elevation[(y / 32 | 0) * 60 + (x / 32 | 0)];
+		var level = this.navigation.elevation[(y / 32 | 0) * 84 + (x / 32 | 0)];
 		var _g = 1;
 		var _g1 = steps;
 		while(_g < _g1) {
@@ -10369,13 +11165,16 @@ World.prototype = $extend(openfl_display_Sprite.prototype,{
 			if(u.kind == "Monk" && ((target) instanceof Unit) && target.garrison != null && this.inFootprint(target.garrison,cx,cy)) {
 				continue;
 			}
-			if(u.garrison != null && (this.inFootprint(u.garrison,cx,cy) || this.wallCells.h.hasOwnProperty(cy * 60 + cx))) {
+			if(((target) instanceof TransportBoat) && cx == (target.get_x() / 32 | 0) && cy == (target.get_y() / 32 | 0)) {
 				continue;
 			}
-			if(!this.navigation.free(cx,cy) && !(u.get_attackRange() > 48 && this.terrain.water[cy * 60 + cx] && this.sea.navigation.free(cx,cy))) {
+			if(u.garrison != null && (this.inFootprint(u.garrison,cx,cy) || this.wallCells.h.hasOwnProperty(cy * 84 + cx))) {
+				continue;
+			}
+			if(!this.navigation.free(cx,cy) && !(u.get_attackRange() > 48 && this.terrain.water[cy * 84 + cx] && this.sea.navigation.free(cx,cy))) {
 				return false;
 			}
-			if(u.get_attackRange() <= 48 && this.navigation.elevation[cy * 60 + cx] != level && !this.navigation.ramps[cy * 60 + cx]) {
+			if(u.get_attackRange() <= 48 && this.navigation.elevation[cy * 84 + cx] != level && !this.navigation.ramps[cy * 84 + cx]) {
 				return false;
 			}
 		}
@@ -10425,7 +11224,7 @@ World.prototype = $extend(openfl_display_Sprite.prototype,{
 		while(_g < _g1.length) {
 			var other = _g1[_g];
 			++_g;
-			if(u.hostileTo(other) && !other.get_dead()) {
+			if(u.hostileTo(other) && !other.get_dead() && other.transport == null) {
 				var d = this.targetDistance(u,other);
 				if(d < distance) {
 					distance = d;
@@ -10436,7 +11235,7 @@ World.prototype = $extend(openfl_display_Sprite.prototype,{
 		return best;
 	}
 	,heal: function(u,target) {
-		if(u.kind != "Monk" || u.get_dead() || target == null || target.get_dead() || target.team != u.team || target.health >= target.maxHealth || this.allUnits().indexOf(u) < 0 || this.allUnits().indexOf(target) < 0) {
+		if(u.kind != "Monk" || u.get_dead() || u.transport != null || target == null || target.get_dead() || target.transport != null || target.team != u.team || target.health >= target.maxHealth || this.allUnits().indexOf(u) < 0 || this.allUnits().indexOf(target) < 0) {
 			return false;
 		}
 		this.cancelTask(u);
@@ -10453,7 +11252,7 @@ World.prototype = $extend(openfl_display_Sprite.prototype,{
 			u.task = "idle";
 		}
 		var target = u.healTarget;
-		if(target != null && (target.get_dead() || target.health >= target.maxHealth || target.team != u.team || this.targetDistance(u,target) > 320)) {
+		if(target != null && (target.get_dead() || target.transport != null || target.health >= target.maxHealth || target.team != u.team || this.targetDistance(u,target) > 320)) {
 			this.cancelTask(u);
 			u.route = [];
 			target = null;
@@ -10465,7 +11264,7 @@ World.prototype = $extend(openfl_display_Sprite.prototype,{
 			while(_g1 < _g2.length) {
 				var other = _g2[_g1];
 				++_g1;
-				if(other.team == u.team && !other.get_dead() && other.health < other.maxHealth && this.targetDistance(u,other) <= 240) {
+				if(other.team == u.team && !other.get_dead() && other.transport == null && other.health < other.maxHealth && this.targetDistance(u,other) <= 240) {
 					_g.push(other);
 				}
 			}
@@ -10512,7 +11311,7 @@ World.prototype = $extend(openfl_display_Sprite.prototype,{
 		while(_g < _g1.length) {
 			var u = [_g1[_g]];
 			++_g;
-			if(u[0].get_dead() || u[0].sailing) {
+			if(u[0].get_dead() || u[0].transport != null || u[0].sailing) {
 				continue;
 			}
 			if(u[0].kind == "Monk") {
@@ -10524,6 +11323,9 @@ World.prototype = $extend(openfl_display_Sprite.prototype,{
 			}
 			if(u[0].enemy && u[0].kind == "Peasant") {
 				continue;
+			}
+			if(((u[0].attackTarget) instanceof Unit) && u[0].attackTarget.transport != null) {
+				u[0].attackTarget = u[0].attackTarget.transport;
 			}
 			u[0].attackCooldown = Math.max(0,u[0].attackCooldown - dt);
 			u[0].repathTimer -= dt;
@@ -10582,6 +11384,26 @@ World.prototype = $extend(openfl_display_Sprite.prototype,{
 					this.attack(u[0],nearby1);
 				}
 			}
+			if(u[0].team != "Blue" && (u[0].attackTarget == null || ((u[0].attackTarget) instanceof Building))) {
+				var closest = null;
+				var distance = 180.;
+				var _g6 = 0;
+				var _g7 = this.boats;
+				while(_g6 < _g7.length) {
+					var boat = _g7[_g6];
+					++_g6;
+					if(!boat.get_dead() && u[0].hostileTo(boat)) {
+						var d = this.targetDistance(u[0],boat);
+						if(d < distance) {
+							closest = boat;
+							distance = d;
+						}
+					}
+				}
+				if(closest != null) {
+					this.attack(u[0],closest);
+				}
+			}
 			var target = u[0].attackTarget;
 			if(target == null || target.get_dead()) {
 				continue;
@@ -10613,6 +11435,9 @@ World.prototype = $extend(openfl_display_Sprite.prototype,{
 		}
 	}
 	,removeDead: function() {
+		if(this.transport != null) {
+			this.transport.prepareDeaths();
+		}
 		var _g = 0;
 		var _g1 = this.buildings;
 		while(_g < _g1.length) {
@@ -10669,10 +11494,17 @@ World.prototype = $extend(openfl_display_Sprite.prototype,{
 			u.selected = false;
 			u.route = [];
 			u.attackTarget = null;
+			if(u.transport != null) {
+				HxOverrides.remove(u.transport.passengers,u);
+				u.transport = null;
+			}
 			HxOverrides.remove(this.units,u);
 			HxOverrides.remove(this.enemies,u);
 			HxOverrides.remove(this.monsters,u);
 			this.objects.removeChild(u);
+		}
+		if(this.transport != null) {
+			this.transport.removeDead();
 		}
 		var _g = 0;
 		var _g1 = this.buildings.slice();
@@ -10690,7 +11522,7 @@ World.prototype = $extend(openfl_display_Sprite.prototype,{
 				HxOverrides.remove(this.buildings,b);
 				this.objects.removeChild(b);
 				if(b.kind == "Wall") {
-					this.wallCells.remove(b.cellY * 60 + b.cellX);
+					this.wallCells.remove(b.cellY * 84 + b.cellX);
 				}
 				var _g2 = b.cellY - b.footprintHeight + 1;
 				var _g3 = b.cellY + 1;
@@ -10700,7 +11532,7 @@ World.prototype = $extend(openfl_display_Sprite.prototype,{
 					var _g5 = b.cellX - (b.footprintWidth / 2 | 0) + b.footprintWidth;
 					while(_g4 < _g5) {
 						var x = _g4++;
-						var i = y * 60 + x;
+						var i = y * 84 + x;
 						this.navigation.blocked[i] = this.terrain.water[i] && !this.terrain.bridges[i] || this.terrain.cliffs[i] || this.terrain.rocks[i];
 						if(b.get_waterHut()) {
 							this.sea.navigation.blocked[i] = !this.terrain.water[i] || this.terrain.bridges[i];
@@ -10774,6 +11606,7 @@ World.prototype = $extend(openfl_display_Sprite.prototype,{
 			dt = 0;
 		}
 		this.updateProduction(dt);
+		this.transport.update(dt);
 		var _g = 0;
 		var _g1 = this.grazingSheep;
 		while(_g < _g1.length) {
@@ -10816,6 +11649,10 @@ World.prototype = $extend(openfl_display_Sprite.prototype,{
 				this.disembark(u);
 			}
 		}
+		if(dt > 0) {
+			this.transport.finishBoarding();
+		}
+		this.transport.updateWrecks(effectDt);
 		var _g = 0;
 		var _g1 = this.arrows.slice();
 		while(_g < _g1.length) {
@@ -32091,7 +32928,7 @@ var lime_utils_AssetCache = function() {
 	this.audio = new haxe_ds_StringMap();
 	this.font = new haxe_ds_StringMap();
 	this.image = new haxe_ds_StringMap();
-	this.version = 42644;
+	this.version = 698055;
 };
 $hxClasses["lime.utils.AssetCache"] = lime_utils_AssetCache;
 lime_utils_AssetCache.__name__ = "lime.utils.AssetCache";
@@ -88072,6 +88909,7 @@ Terrain.REGION_LEFT = 2;
 Terrain.REGION_TOP = 29;
 Terrain.REGION_RIGHT = 26;
 Terrain.REGION_BOTTOM = 43;
+TransportBoat.CAPACITY = 4;
 UiSkin.tiles = new haxe_ds_StringMap();
 Unit.EMPTY_BOAT_ASSET = "seahorse-boat/Seahorse Boat_Idle.png";
 Unit.BOAT_FRAME_SIZE = 192;
@@ -88080,8 +88918,8 @@ UnitDeath.DURATION = 1.8;
 WallArt.WIDTH = 64;
 WallArt.HEIGHT = 96;
 World.TILE = 32;
-World.COLS = 60;
-World.ROWS = 45;
+World.COLS = 84;
+World.ROWS = 60;
 World.VILLAGE_X = 15;
 World.VILLAGE_Y = 10;
 World.MONSTER_INTERVAL = 24;
