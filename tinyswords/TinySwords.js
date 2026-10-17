@@ -938,7 +938,7 @@ ApplicationMain.main = function() {
 ApplicationMain.create = function(config) {
 	var app = new openfl_display_Application();
 	ManifestResources.init(config);
-	app.meta.h["build"] = "25";
+	app.meta.h["build"] = "26";
 	app.meta.h["company"] = "Tiny Swords";
 	app.meta.h["file"] = "TinySwords";
 	app.meta.h["name"] = "Tiny Swords";
@@ -7104,7 +7104,7 @@ EditorMapFile.validate = function(data) {
 		EditorMapFile.position(u);
 		EditorMapFile.number(u.health,0,1000000000);
 		EditorMapFile.integer(u.cargoAmount,0,10);
-		if(["","Gold","Wood","Food"].indexOf(u.cargoKind) < 0 || u.cargoAmount > 0 && u.cargoKind == "") {
+		if(["","Gold","Wood","Food"].indexOf(u.cargoKind) < 0 || u.cargoAmount > 0 && (u.cargoKind == "" || u.kind != "Peasant")) {
 			throw haxe_Exception.thrown("Invalid cargo");
 		}
 		var roof = EditorMapFile.integer(u.garrison,-1,buildings.length - 1);
@@ -34439,7 +34439,7 @@ var lime_utils_AssetCache = function() {
 	this.audio = new haxe_ds_StringMap();
 	this.font = new haxe_ds_StringMap();
 	this.image = new haxe_ds_StringMap();
-	this.version = 509018;
+	this.version = 822961;
 };
 $hxClasses["lime.utils.AssetCache"] = lime_utils_AssetCache;
 lime_utils_AssetCache.__name__ = "lime.utils.AssetCache";
