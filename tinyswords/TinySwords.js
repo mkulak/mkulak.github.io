@@ -938,7 +938,7 @@ ApplicationMain.main = function() {
 ApplicationMain.create = function(config) {
 	var app = new openfl_display_Application();
 	ManifestResources.init(config);
-	app.meta.h["build"] = "27";
+	app.meta.h["build"] = "30";
 	app.meta.h["company"] = "Tiny Swords";
 	app.meta.h["file"] = "TinySwords";
 	app.meta.h["name"] = "Tiny Swords";
@@ -3535,6 +3535,9 @@ Main.prototype = $extend(openfl_display_Sprite.prototype,{
 		this.hud = new openfl_display_Sprite();
 		this.addChild(this.hud);
 		this.editor = new SceneryEditor(this.world,this.clouds);
+		if(!this.editor.importLayout(openfl_utils_Assets.getText("initial-map"))) {
+			throw haxe_Exception.thrown(this.editor.message.get_text());
+		}
 		this.editor.set_y(68);
 		this.addChild(this.editor);
 		this.selectionBox = new openfl_display_Sprite();
@@ -3550,15 +3553,20 @@ Main.prototype = $extend(openfl_display_Sprite.prototype,{
 			_gthis.pointerInside = true;
 			_gthis.pointerX = e.stageX;
 			_gthis.pointerY = e.stageY;
+			if(_gthis.editor.active) {
+				_gthis.editor.dragTo(e.stageX + _gthis.cameraX,e.stageY + _gthis.cameraY);
+			}
 		});
 		this.stage.addEventListener("mouseLeave",function(_) {
 			_gthis.pointerInside = false;
+			_gthis.editor.cancelMove();
 			_gthis.drag = null;
 			_gthis.selectionBox.get_graphics().clear();
 		});
 		this.stage.addEventListener("deactivate",function(_) {
 			_gthis.keys.h = { };
 			_gthis.pointerInside = false;
+			_gthis.editor.cancelMove();
 			_gthis.drag = null;
 			_gthis.selectionBox.get_graphics().clear();
 		});
@@ -3832,8 +3840,6 @@ Main.prototype = $extend(openfl_display_Sprite.prototype,{
 		button.set_x(cx - 110);
 		button.set_y(cy + 60);
 		this.splash.addChild(button);
-		var hint = this.label(this.splash,"Four peasants · One swordsman · One archer",cx - 250,cy + 145,14,8416074,500);
-		hint.setTextFormat(new openfl_text_TextFormat("_sans",14,8416074,false,null,null,null,null,openfl_text_TextFormatAlign.fromString("center")));
 		var travel = this.label(this.splash,"V: boats · Right-click boats with units to board · I: islands",cx - 250,cy + 173,12,8416074,500);
 		travel.setTextFormat(new openfl_text_TextFormat("_sans",12,8416074,false,null,null,null,null,openfl_text_TextFormatAlign.fromString("center")));
 	}
@@ -3846,6 +3852,9 @@ Main.prototype = $extend(openfl_display_Sprite.prototype,{
 		this.clouds = new CloudLayer();
 		this.addChildAt(this.clouds,this.getChildIndex(this.editorGrid) + 1);
 		this.editor = new SceneryEditor(this.world,this.clouds);
+		if(!this.editor.importLayout(openfl_utils_Assets.getText("initial-map"))) {
+			throw haxe_Exception.thrown(this.editor.message.get_text());
+		}
 		this.editor.set_y(68);
 		this.addChild(this.editor);
 		this.buildKind = null;
@@ -3904,7 +3913,7 @@ Main.prototype = $extend(openfl_display_Sprite.prototype,{
 	,down: function(e) {
 		if(this.playing && this.editor.active) {
 			if(this.inMap(e.stageX,e.stageY)) {
-				this.editor.place(e.stageX + this.cameraX,e.stageY + this.cameraY);
+				this.editor.begin(e.stageX + this.cameraX,e.stageY + this.cameraY);
 			}
 			return;
 		}
@@ -3934,6 +3943,10 @@ Main.prototype = $extend(openfl_display_Sprite.prototype,{
 		}
 	}
 	,up: function(e) {
+		if(this.editor.active) {
+			this.editor.endMove(e.stageX + this.cameraX,e.stageY + this.cameraY,this.inMap(e.stageX,e.stageY));
+			return;
+		}
 		if(this.drag == null) {
 			return;
 		}
@@ -3946,6 +3959,14 @@ Main.prototype = $extend(openfl_display_Sprite.prototype,{
 		var box = new openfl_geom_Rectangle(Math.min(this.drag.x,end.x),Math.min(this.drag.y,end.y),Math.abs(end.x - this.drag.x),Math.abs(end.y - this.drag.y));
 		this.buildMenu = false;
 		this.buildKind = null;
+		this.selectedSheep = null;
+		var _g = 0;
+		var _g1 = this.world.grazingSheep;
+		while(_g < _g1.length) {
+			var s = _g1[_g];
+			++_g;
+			s.selected = false;
+		}
 		this.selectedBuilding = null;
 		this.selectedBoat = null;
 		this.boatMessage = "";
@@ -3984,7 +4005,18 @@ Main.prototype = $extend(openfl_display_Sprite.prototype,{
 					nearest = u;
 				}
 			}
-			if(nearest != null) {
+			var animal = this.world.sheepAt(end.x,end.y);
+			if(animal != null) {
+				this.selectedSheep = animal;
+				animal.selected = true;
+				var _g = 0;
+				var _g1 = this.world.units;
+				while(_g < _g1.length) {
+					var u = _g1[_g];
+					++_g;
+					u.selected = false;
+				}
+			} else if(nearest != null) {
 				nearest.selected = e.shiftKey ? !nearest.selected : true;
 			} else if(this.world.boatAt(end.x,end.y) != null) {
 				this.selectedBoat = this.world.boatAt(end.x,end.y);
@@ -4145,7 +4177,7 @@ Main.prototype = $extend(openfl_display_Sprite.prototype,{
 			while(_g < selected.length) {
 				var u = selected[_g];
 				++_g;
-				if(this.world.gather(u,resource)) {
+				if(this.world.gather(u,resource,this.world.sheepAt(wx,wy))) {
 					++assigned;
 				}
 			}
@@ -4284,6 +4316,14 @@ Main.prototype = $extend(openfl_display_Sprite.prototype,{
 			this.updateActions();
 		}
 		if(this.playing && e.keyCode == 27) {
+			this.selectedSheep = null;
+			var _g = 0;
+			var _g1 = this.world.grazingSheep;
+			while(_g < _g1.length) {
+				var s = _g1[_g];
+				++_g;
+				s.selected = false;
+			}
 			this.buildKind = null;
 			this.buildMenu = false;
 			this.selectedBuilding = null;
@@ -4306,6 +4346,14 @@ Main.prototype = $extend(openfl_display_Sprite.prototype,{
 			this.updateStatus();
 		}
 		if(this.playing && e.keyCode == 65 && (e.ctrlKey || e.commandKey)) {
+			this.selectedSheep = null;
+			var _g = 0;
+			var _g1 = this.world.grazingSheep;
+			while(_g < _g1.length) {
+				var s = _g1[_g];
+				++_g;
+				s.selected = false;
+			}
 			this.selectedBuilding = null;
 			this.selectedBoat = null;
 			this.boatMessage = "";
@@ -4345,6 +4393,14 @@ Main.prototype = $extend(openfl_display_Sprite.prototype,{
 		if(this.world.boats.length == 0) {
 			this.status.set_text("No transport boats remaining");
 			return;
+		}
+		this.selectedSheep = null;
+		var _g = 0;
+		var _g1 = this.world.grazingSheep;
+		while(_g < _g1.length) {
+			var s = _g1[_g];
+			++_g;
+			s.selected = false;
 		}
 		this.boatMessage = "";
 		this.boatIndex = (this.boatIndex + 1) % this.world.boats.length;
@@ -4458,6 +4514,11 @@ Main.prototype = $extend(openfl_display_Sprite.prototype,{
 		var selected = _g;
 		if(this.portrait != null) {
 			this.portrait.set_bitmapData(Art.data(selected.length == 1 && selected[0].kind == "Archer" ? "ui-avatar-archer" : selected.length == 1 && selected[0].kind == "Swordsman" ? "ui-avatar-swordsman" : "ui-avatar-peasant"));
+		}
+		if(this.selectedSheep != null) {
+			this.portrait.set_bitmapData(Art.frames("sheep-idle",128)[0]);
+			this.status.set_text("Sheep · 10 food · Peasants return for more sheep");
+			return;
 		}
 		if(this.selectedBoat != null) {
 			this.portrait.set_bitmapData(Art.frames("player-boat",256)[0]);
@@ -4713,6 +4774,7 @@ Main.prototype = $extend(openfl_display_Sprite.prototype,{
 		}
 		if(this.editorRevision != this.editor.revision) {
 			this.editorRevision = this.editor.revision;
+			this.selectedSheep = null;
 			this.selectedBuilding = null;
 			this.selectedBoat = null;
 			this.buildKind = null;
@@ -4727,7 +4789,14 @@ Main.prototype = $extend(openfl_display_Sprite.prototype,{
 			}
 			this.updateStatus();
 		}
+		if(this.gameCursor == null) {
+			this.gameCursor = new GameCursor();
+			this.addChild(this.gameCursor);
+		}
+		this.setChildIndex(this.gameCursor,this.get_numChildren() - 1);
+		this.gameCursor.update(this.pointerX,this.pointerY,this.pointerInside,this.editor.active && this.inMap(this.pointerX,this.pointerY) && this.editor.mode == "delete" ? 3 : !this.inMap(this.pointerX,this.pointerY) || this.editor.active && this.editor.mode == "move" ? 2 : 1);
 		var unitCount = this.world.units.length;
+		Combatant.hideHealthBars = this.editor.active;
 		this.world.update(this.playing && !this.editor.active ? dt : 0);
 		if(this.editor.active) {
 			var _g = 0;
@@ -4762,11 +4831,11 @@ Main.prototype = $extend(openfl_display_Sprite.prototype,{
 				g.lineTo(Math.min(this.stage.stageWidth,2688 - this.cameraX),y);
 			}
 		}
-		if(this.sceneryPreview != null && (!this.editor.active || this.previewId != this.editor.selected)) {
+		if(this.sceneryPreview != null && (!this.editor.active || this.editor.mode != "add" || this.previewId != this.editor.selected)) {
 			this.removeChild(this.sceneryPreview);
 			this.sceneryPreview = null;
 		}
-		if(this.editor.active && this.editor.selected != "erase" && this.sceneryPreview == null) {
+		if(this.editor.active && this.editor.mode == "add" && this.editor.selected != "erase" && this.sceneryPreview == null) {
 			this.sceneryPreview = EditorCatalog.preview(this.editor.selected);
 			this.previewId = this.editor.selected;
 			this.sceneryPreview.set_alpha(0.55);
@@ -4808,7 +4877,20 @@ Main.prototype = $extend(openfl_display_Sprite.prototype,{
 		while(_g < _g1.length) {
 			var r = _g1[_g];
 			++_g;
-			r.hovered = r == hovered;
+			r.hovered = r == hovered && r.kind != "Food";
+		}
+		var hoveredSheep = this.playing && this.pointerInside && this.inMap(this.pointerX,this.pointerY) ? this.world.sheepAt(this.pointerX + this.cameraX,this.pointerY + this.cameraY) : null;
+		var _g = 0;
+		var _g1 = this.world.grazingSheep;
+		while(_g < _g1.length) {
+			var s = _g1[_g];
+			++_g;
+			s.hovered = s == hoveredSheep;
+			s.selected = s == this.selectedSheep && s.alive;
+		}
+		if(this.selectedSheep != null && !this.selectedSheep.alive) {
+			this.selectedSheep = null;
+			this.updateStatus();
 		}
 		this.updateResources(hovered);
 		this.updateProductionPanel();
@@ -4860,7 +4942,7 @@ Main.prototype = $extend(openfl_display_Sprite.prototype,{
 		var kind = "Food";
 		this.resourceValues.h[kind].set_text(Std.string(this.world.stock.h[kind]));
 		if(hovered != null) {
-			this.resourceHint.set_text((hovered.kind == "Food" ? "Sheep herd · " + hovered.get_animals() + "/10 · New sheep every 10s" : hovered.kind == "Wood" ? hovered.get_depleted() ? "Stump · Regrows in " + Math.ceil(10 - hovered.regrowTimer) + "s" : "Tree · One wood load · Regrows 10s after felling" : "Gold · " + hovered.amount + " remaining") + " · Right-click with peasants to gather");
+			this.resourceHint.set_text((hovered.kind == "Food" ? "Sheep · 10 food · Gather repeats with new sheep" : hovered.kind == "Wood" ? hovered.get_depleted() ? "Stump · Regrows in " + Math.ceil(10 - hovered.regrowTimer) + "s" : "Tree · One wood load · Regrows 10s after felling" : "Gold · " + hovered.amount + " remaining") + " · Right-click with peasants to gather");
 		} else {
 			var _g = [];
 			var _g1 = 0;
@@ -6087,7 +6169,7 @@ Combatant.prototype = $extend(openfl_display_Sprite.prototype,{
 		this.hitFlash = Math.max(0,this.hitFlash - dt);
 		this.set_alpha(this.hitFlash > 0 ? 0.55 : 1);
 		this.healthBar.set_y(yOffset);
-		this.healthBar.set_visible(!this.get_dead() && (show || this.team != "Blue" || this.health < this.maxHealth));
+		this.healthBar.set_visible(!Combatant.hideHealthBars && !this.get_dead() && (show || this.team != "Blue" || this.health < this.maxHealth));
 		this.healthBar.setRatio(this.health / this.maxHealth);
 	}
 	,__class__: Combatant
@@ -6399,20 +6481,11 @@ BuildingDeath.prototype = $extend(openfl_display_Sprite.prototype,{
 	,__properties__: $extend(openfl_display_Sprite.prototype.__properties__,{get_finished:"get_finished"})
 });
 var CloudLayer = function() {
-	this.lastHole = false;
-	this.lastY = -1;
-	this.lastX = -1;
-	this.lastHeight = -1;
-	this.lastWidth = -1;
 	this.drift = 0;
 	this.clouds = [];
 	openfl_display_Sprite.call(this);
 	this.mouseEnabled = false;
 	this.mouseChildren = false;
-	this.cutout = new openfl_display_Sprite();
-	this.cutout.mouseEnabled = false;
-	this.addChild(this.cutout);
-	this.set_mask(this.cutout);
 	this.place("cloud-" + 1,4,5 + 0 % 40);
 	this.place("cloud-" + 2,12,5 + 13 % 40);
 	this.place("cloud-" + 3,20,5 + 26 % 40);
@@ -6433,14 +6506,16 @@ CloudLayer.prototype = $extend(openfl_display_Sprite.prototype,{
 		this.addChildAt(c,0);
 	}
 	,placeAt: function(id,wx,wy,cameraX,cameraY) {
+		this.place(id,0,0);
+		this.position(this.clouds[this.clouds.length - 1],wx,wy,cameraX,cameraY);
+	}
+	,position: function(c,wx,wy,cameraX,cameraY) {
 		var px = wx - cameraX * 0.2 - this.drift;
 		var py = wy - cameraY;
-		var cx = Math.floor(px / 32) | 0;
-		var cy = Math.floor(py / 32) | 0;
-		this.place(id,cx,cy);
-		var c = this.clouds[this.clouds.length - 1];
-		c.offsetX = px - cx * 32;
-		c.offsetY = py - cy * 32;
+		c.cx = Math.floor(px / 32) | 0;
+		c.cy = Math.floor(py / 32) | 0;
+		c.offsetX = px - c.cx * 32;
+		c.offsetY = py - c.cy * 32;
 	}
 	,clear: function() {
 		var _g = 0;
@@ -6463,38 +6538,6 @@ CloudLayer.prototype = $extend(openfl_display_Sprite.prototype,{
 			c.set_x(((c.cx * 32 + c.offsetX + this.drift + 300) % span + span) % span - 300 - cameraX * 0.8);
 			c.set_y(c.cy * 32 + c.offsetY);
 		}
-		if(w == this.lastWidth && h == this.lastHeight && hole == this.lastHole && (!hole || mx == this.lastX && my == this.lastY)) {
-			return;
-		}
-		this.lastWidth = w;
-		this.lastHeight = h;
-		this.lastHole = hole;
-		this.lastX = mx;
-		this.lastY = my;
-		var commands = openfl_Vector.toIntVector(null);
-		var data = openfl_Vector.toFloatVector(null);
-		var point = function(command,x,y) {
-			commands.push(command);
-			data.push(x);
-			data.push(y);
-		};
-		point(1,0,0);
-		point(2,w,0);
-		point(2,w,h);
-		point(2,0,h);
-		point(2,0,0);
-		if(hole) {
-			var _g = 0;
-			while(_g < 65) {
-				var i = _g++;
-				var a = i * Math.PI * 2 / 64;
-				point(i == 0 ? 1 : 2,mx + 105 * Math.cos(a),my + 105 * Math.sin(a));
-			}
-		}
-		this.cutout.get_graphics().clear();
-		this.cutout.get_graphics().beginFill(16777215);
-		this.cutout.get_graphics().drawPath(commands,data,0);
-		this.cutout.get_graphics().endFill();
 	}
 	,__class__: CloudLayer
 });
@@ -6613,6 +6656,14 @@ EditorCatalog.init = function() {
 	EditorCatalog.catalog.push(new EditorAsset("mat:" + kind,kind == "grass" ? "Grass" : "Water","mat","mat",kind,"","tiles",64,64));
 	var kind = "water";
 	EditorCatalog.catalog.push(new EditorAsset("mat:" + kind,kind == "grass" ? "Grass" : "Water","mat","mat",kind,"","tiles",64,64));
+	EditorCatalog.addTiles("terrain-" + 1,"Terrain " + 1,9,6);
+	EditorCatalog.addTiles("terrain-" + 2,"Terrain " + 2,9,6);
+	EditorCatalog.addTiles("terrain-" + 3,"Terrain " + 3,9,6);
+	EditorCatalog.addTiles("terrain-" + 4,"Terrain " + 4,9,6);
+	EditorCatalog.addTiles("terrain-" + 5,"Terrain " + 5,9,6);
+	EditorCatalog.addTiles("terrain-shadow","Shadow",3,3);
+	EditorCatalog.addTiles("terrain-foam","Water foam",3,3);
+	EditorCatalog.addTiles("terrain-water","Water background",1,1);
 	var _g = 0;
 	var _g1 = Scenery.ids();
 	while(_g < _g1.length) {
@@ -6735,6 +6786,28 @@ EditorCatalog.init = function() {
 	}
 	EditorCatalog.catalog.push(new EditorAsset("boat:Blue","Blue transport boat","units","boat","Boat","Blue","player-boat",256,256));
 };
+EditorCatalog.addTiles = function(art,title,cols,rows) {
+	var sheet = Art.data(art);
+	var _g = 0;
+	var _g1 = rows;
+	while(_g < _g1) {
+		var y = _g++;
+		var _g2 = 0;
+		var _g3 = cols;
+		while(_g2 < _g3) {
+			var x = _g2++;
+			var frame = new openfl_display_BitmapData(64,64,true,0);
+			frame.copyPixels(sheet,new openfl_geom_Rectangle(x * 64,y * 64,64,64),new openfl_geom_Point());
+			if(frame.getColorBoundsRect(-16777216,0,false).width == 0) {
+				continue;
+			}
+			var a = new EditorAsset("tile:" + art + ":" + x + ":" + y,title + " · " + (x + 1) + "," + (y + 1),"mat","tile","land","",art,64,64);
+			a.tile = y * cols + x;
+			EditorCatalog.catalog.push(a);
+			EditorCatalog.images.h[a.id] = frame;
+		}
+	}
+};
 EditorCatalog.buildingArt = function(kind,color) {
 	return (color == "Blue" ? "buildings/" : color == "Red" ? "enemy-buildings/" : "editor-buildings/" + color + "/") + (kind == "Church" ? "Monastery" : kind) + ".png";
 };
@@ -6832,7 +6905,7 @@ EditorCatalog.preview = function(id,thumbnail) {
 	} else {
 		image.set_scaleX(image.set_scaleY(0.5));
 		image.set_x(-a.width * 0.5 / 2);
-		image.set_y(a.type == "unit" ? -(a.team == "Monsters" ? ActorCatalog.monster(a.kind).foot : a.kind == "Lancer" ? 192 : 128) * 0.5 : a.type == "mat" ? -16 : -a.height * 0.5 + 16);
+		image.set_y(a.type == "unit" ? -(a.team == "Monsters" ? ActorCatalog.monster(a.kind).foot : a.kind == "Lancer" ? 192 : 128) * 0.5 : a.type == "mat" || a.type == "tile" ? -16 : -a.height * 0.5 + 16);
 	}
 	return sprite;
 };
@@ -6841,14 +6914,30 @@ $hxClasses["EditorMapFile"] = EditorMapFile;
 EditorMapFile.__name__ = "EditorMapFile";
 EditorMapFile.snapshot = function(w) {
 	var units = w.allUnits();
-	var tmp = { water : w.terrain.water, cliffs : w.terrain.cliffs, bridges : w.terrain.bridges, rocks : w.terrain.rocks, elevation : w.navigation.elevation, ramps : w.navigation.ramps};
+	var tmp = { tiles : w.terrain.tiles, water : w.terrain.water, cliffs : w.terrain.cliffs, bridges : w.terrain.bridges, rocks : w.terrain.rocks, elevation : w.navigation.elevation, ramps : w.navigation.ramps};
 	var _g = [];
 	var _g1 = 0;
 	var _g2 = w.resources;
 	while(_g1 < _g2.length) {
 		var r = _g2[_g1];
 		++_g1;
-		_g.push({ kind : r.kind, cx : r.cellX, cy : r.cellY, amount : r.amount, treeArt : r.treeArt, regrowTimer : r.regrowTimer});
+		var r1 = r.kind;
+		var r2 = r.cellX;
+		var r3 = r.cellY;
+		var tmp1 = r.get_x();
+		var tmp2 = r.get_y();
+		var r4 = r.amount;
+		var r5 = r.treeArt;
+		var r6 = r.regrowTimer;
+		var _g3 = [];
+		var _g4 = 0;
+		var _g5 = r.sheep;
+		while(_g4 < _g5.length) {
+			var s = _g5[_g4];
+			++_g4;
+			_g3.push({ alive : s.alive, x : s.groundX(), y : s.groundY(), homeX : s.homeX, homeY : s.homeY});
+		}
+		_g.push({ kind : r1, cx : r2, cy : r3, x : tmp1, y : tmp2, amount : r4, treeArt : r5, regrowTimer : r6, sheep : _g3});
 	}
 	var tmp1 = _g;
 	var _g = [];
@@ -6857,7 +6946,7 @@ EditorMapFile.snapshot = function(w) {
 	while(_g1 < _g2.length) {
 		var b = _g2[_g1];
 		++_g1;
-		_g.push({ kind : b.kind, team : b.team, cx : b.cellX, cy : b.cellY, tile : b.wallTile, health : b.health, buildSeconds : b.buildSeconds, workDone : b.workDone});
+		_g.push({ kind : b.kind, team : b.team, cx : b.cellX, cy : b.cellY, x : b.get_x(), y : b.get_y(), tile : b.wallTile, health : b.health, buildSeconds : b.buildSeconds, workDone : b.workDone});
 	}
 	var tmp2 = _g;
 	var _g = [];
@@ -7048,6 +7137,20 @@ EditorMapFile.validate = function(data) {
 			EditorMapFile.boolean(value);
 		}
 	}
+	if(data.terrain.tiles != null) {
+		var tiles = EditorMapFile.array(data.terrain.tiles,count);
+		if(tiles.length != count) {
+			throw haxe_Exception.thrown("Wrong tile count");
+		}
+		var _g = 0;
+		while(_g < tiles.length) {
+			var id = tiles[_g];
+			++_g;
+			if(id != "" && (EditorCatalog.get(id) == null || EditorCatalog.get(id).type != "tile")) {
+				throw haxe_Exception.thrown("Unknown terrain tile");
+			}
+		}
+	}
 	var buildings = EditorMapFile.array(data.buildings,3000);
 	var units = EditorMapFile.array(data.units,3000);
 	var boats = EditorMapFile.array(data.boats,500);
@@ -7061,6 +7164,12 @@ EditorMapFile.validate = function(data) {
 		}
 		EditorMapFile.integer(b.cx,0,83);
 		EditorMapFile.integer(b.cy,0,59);
+		if(b.x != null || b.y != null) {
+			EditorMapFile.position(b);
+			if((b.x / 32 | 0) != b.cx || (b.y / 32 | 0) != b.cy) {
+				throw haxe_Exception.thrown("Building position mismatch");
+			}
+		}
 		var size = MapEditing.footprint(b.kind);
 		if(b.cx - (size.w / 2 | 0) < 0 || b.cx - (size.w / 2 | 0) + size.w > 84 || b.cy - size.h + 1 < 0) {
 			throw haxe_Exception.thrown("Building outside map");
@@ -7079,8 +7188,36 @@ EditorMapFile.validate = function(data) {
 		}
 		EditorMapFile.integer(r.cx,0,83);
 		EditorMapFile.integer(r.cy,0,59);
+		if(r.x != null || r.y != null) {
+			EditorMapFile.position(r);
+			if((r.x / 32 | 0) != r.cx || (r.y / 32 | 0) != r.cy) {
+				throw haxe_Exception.thrown("Resource position mismatch");
+			}
+		}
 		EditorMapFile.integer(r.amount,0,100000000);
 		EditorMapFile.number(r.regrowTimer,0,100000);
+		if(r.sheep != null) {
+			var list = EditorMapFile.array(r.sheep,10);
+			var live = 0;
+			if(list.length != (r.kind == "Food" ? 10 : 0)) {
+				throw haxe_Exception.thrown("Invalid sheep list");
+			}
+			var _g2 = 0;
+			while(_g2 < list.length) {
+				var s = list[_g2];
+				++_g2;
+				EditorMapFile.boolean(s.alive);
+				EditorMapFile.position(s);
+				EditorMapFile.number(s.homeX,0,2687.999);
+				EditorMapFile.number(s.homeY,0,1919.999);
+				if(s.alive) {
+					++live;
+				}
+			}
+			if(r.kind == "Food" && live * 10 != r.amount) {
+				throw haxe_Exception.thrown("Sheep count does not match food");
+			}
+		}
 	}
 	var _g = 0;
 	while(_g < boats.length) {
@@ -7160,6 +7297,20 @@ EditorMapFile.apply = function(w,data) {
 	w.scenery = [];
 	w.buildings = [];
 	w.grazingSheep = [];
+	var tmp;
+	if(data.terrain.tiles == null) {
+		var _g = [];
+		var _g1 = 0;
+		var _g2 = 5040;
+		while(_g1 < _g2) {
+			var _ = _g1++;
+			_g.push("");
+		}
+		tmp = _g;
+	} else {
+		tmp = data.terrain.tiles;
+	}
+	w.terrain.tiles = tmp;
 	w.terrain.water = data.terrain.water;
 	w.terrain.cliffs = data.terrain.cliffs;
 	w.terrain.bridges = data.terrain.bridges;
@@ -7173,6 +7324,10 @@ EditorMapFile.apply = function(w,data) {
 		++_g;
 		var size = MapEditing.footprint(e.kind);
 		var b = new Building(e.kind,e.cx,e.cy,size.w,size.h,e.team != "Blue" && e.team != "Monsters",e.team == "Monsters",e.tile,e.team);
+		if(e.x != null) {
+			b.set_x(e.x);
+			b.set_y(e.y);
+		}
 		b.health = e.health;
 		b.buildSeconds = e.buildSeconds;
 		b.workDone = e.workDone;
@@ -7187,6 +7342,10 @@ EditorMapFile.apply = function(w,data) {
 		var r = new ResourceNode(e.kind,e.cx,e.cy,e.amount,e.treeArt);
 		if(e.kind == "Wood" && e.amount == 0) {
 			r.take(10);
+		}
+		if(e.x != null) {
+			r.set_x(e.x);
+			r.set_y(e.y);
 		}
 		r.regrowTimer = e.regrowTimer;
 		r.update(0);
@@ -7246,6 +7405,29 @@ EditorMapFile.apply = function(w,data) {
 	var editing = new MapEditing(w);
 	editing.rebuildNavigation();
 	w.configureHerds();
+	var saved = data.resources;
+	var _g = 0;
+	var _g1 = saved.length;
+	while(_g < _g1) {
+		var i = _g++;
+		if(saved[i].sheep != null) {
+			var list = saved[i].sheep;
+			var _g2 = 0;
+			var _g3 = list.length;
+			while(_g2 < _g3) {
+				var j = _g2++;
+				var s = w.resources[i].sheep[j];
+				var e = list[j];
+				s.homeX = e.homeX;
+				s.homeY = e.homeY;
+				s.alive = e.alive;
+				s.set_visible(e.alive);
+				s.rest();
+				s.set_x(e.x);
+				s.set_y(e.y);
+			}
+		}
+	}
 	w.terrainView.refresh();
 };
 EditorMapFile.points = function(entries) {
@@ -7296,6 +7478,33 @@ FenceArt.image = function(index) {
 	b.set_scaleX(b.set_scaleY(0.5));
 	return b;
 };
+var GameCursor = function() {
+	this.current = 0;
+	openfl_display_Sprite.call(this);
+	this.mouseEnabled = this.mouseChildren = false;
+	this.body = Art.image("cursor-1");
+	this.body.set_x(-12);
+	this.body.set_y(-9);
+	this.addChild(this.body);
+	var style = window.document.createElement("style");
+	style.textContent = "html, body, canvas, #openfl-content, #openfl-content * { cursor: none !important; }";
+	window.document.head.appendChild(style);
+};
+$hxClasses["GameCursor"] = GameCursor;
+GameCursor.__name__ = "GameCursor";
+GameCursor.__super__ = openfl_display_Sprite;
+GameCursor.prototype = $extend(openfl_display_Sprite.prototype,{
+	update: function(px,py,inside,kind) {
+		this.set_x(px);
+		this.set_y(py);
+		this.set_visible(inside);
+		if(this.current != kind) {
+			this.current = kind;
+			this.body.set_bitmapData(Art.data("cursor-" + kind));
+		}
+	}
+	,__class__: GameCursor
+});
 var HealthBar = function(team) {
 	this.ratio = 1;
 	openfl_display_Sprite.call(this);
@@ -7448,7 +7657,7 @@ ManifestResources.init = function(config) {
 		ManifestResources.rootPath = "./";
 	}
 	var bundle;
-	var data = "{\"name\":null,\"assets\":\"aoy4:pathy102:res%2FTiny%20Swords%20%28Free%20Pack%29%2FUI%20Elements%2FUI%20Elements%2FWood%20Table%2FWoodTable.pngy4:sizei12144y4:typey5:IMAGEy2:idy7:ui-woody7:preloadtgoR0y99:res%2FTiny%20Swords%20%28Free%20Pack%29%2FUI%20Elements%2FUI%20Elements%2FPapers%2FRegularPaper.pngR2i2659R3R4R5y8:ui-paperR7tgoR0y109:res%2FTiny%20Swords%20%28Free%20Pack%29%2FUI%20Elements%2FUI%20Elements%2FButtons%2FBigBlueButton_Regular.pngR2i2503R3R4R5y9:ui-buttonR7tgoR0y109:res%2FTiny%20Swords%20%28Free%20Pack%29%2FUI%20Elements%2FUI%20Elements%2FButtons%2FBigBlueButton_Pressed.pngR2i2323R3R4R5y17:ui-button-pressedR7tgoR0y98:res%2FTiny%20Swords%20%28Free%20Pack%29%2FUI%20Elements%2FUI%20Elements%2FRibbons%2FBigRibbons.pngR2i34018R3R4R5y10:ui-ribbonsR7tgoR0y93:res%2FTiny%20Swords%20%28Free%20Pack%29%2FUI%20Elements%2FUI%20Elements%2FSwords%2FSwords.pngR2i20595R3R4R5y9:ui-swordsR7tgoR0y93:res%2FTiny%20Swords%20%28Free%20Pack%29%2FUI%20Elements%2FUI%20Elements%2FIcons%2FIcon_03.pngR2i1387R3R4R5y7:ui-goldR7tgoR0y93:res%2FTiny%20Swords%20%28Free%20Pack%29%2FUI%20Elements%2FUI%20Elements%2FIcons%2FIcon_02.pngR2i1441R3R4R5y12:ui-wood-iconR7tgoR0y93:res%2FTiny%20Swords%20%28Free%20Pack%29%2FUI%20Elements%2FUI%20Elements%2FIcons%2FIcon_04.pngR2i1487R3R4R5y7:ui-foodR7tgoR0y106:res%2FTiny%20Swords%20%28Free%20Pack%29%2FUI%20Elements%2FUI%20Elements%2FHuman%20Avatars%2FAvatars_05.pngR2i4808R3R4R5y17:ui-avatar-peasantR7tgoR0y106:res%2FTiny%20Swords%20%28Free%20Pack%29%2FUI%20Elements%2FUI%20Elements%2FHuman%20Avatars%2FAvatars_01.pngR2i6103R3R4R5y19:ui-avatar-swordsmanR7tgoR0y106:res%2FTiny%20Swords%20%28Free%20Pack%29%2FUI%20Elements%2FUI%20Elements%2FHuman%20Avatars%2FAvatars_03.pngR2i5022R3R4R5y16:ui-avatar-archerR7tgoR0y80:res%2FTiny%20Swords%20%28Free%20Pack%29%2FTerrain%2FTileset%2FTilemap_color2.pngR2i40334R3R4R5y12:island-tilesR7tgoR0y88:res%2FTiny%20Swords%20%28Free%20Pack%29%2FTerrain%2FResources%2FWood%2FTrees%2FTree2.pngR2i17892R3R4R5y9:tree-pineR7tgoR0y88:res%2FTiny%20Swords%20%28Free%20Pack%29%2FTerrain%2FResources%2FWood%2FTrees%2FTree3.pngR2i14564R3R4R5y9:tree-goldR7tgoR0y88:res%2FTiny%20Swords%20%28Free%20Pack%29%2FTerrain%2FResources%2FWood%2FTrees%2FTree4.pngR2i10700R3R4R5y11:tree-orangeR7tgoR0y85:res%2FTiny%20Swords%20%28Free%20Pack%29%2FTerrain%2FDecorations%2FBushes%2FBushe1.pngR2i3967R3R4R5y4:bushR7tgoR0y113:res%2FTiny%20Swords%20%28Free%20Pack%29%2FTerrain%2FDecorations%2FRocks%20in%20the%20Water%2FWater%20Rocks_01.pngR2i3518R3R4R5y10:water-rockR7tgoR0y69:res%2FTiny%20Swords%20%28Free%20Pack%29%2FParticle%20FX%2FFire_01.pngR2i1112R3R4R5y19:building-fire-smallR7tgoR0y69:res%2FTiny%20Swords%20%28Free%20Pack%29%2FParticle%20FX%2FFire_02.pngR2i2229R3R4R5y20:building-fire-mediumR7tgoR0y69:res%2FTiny%20Swords%20%28Free%20Pack%29%2FParticle%20FX%2FFire_03.pngR2i3493R3R4R5y13:building-fireR7tgoR0y74:res%2FTiny%20Swords%20%28Free%20Pack%29%2FParticle%20FX%2FExplosion_01.pngR2i5213R3R4R5y18:building-explosionR7tgoR0y69:res%2FTiny%20Swords%20%28Free%20Pack%29%2FParticle%20FX%2FDust_02.pngR2i4814R3R4R5y13:building-dustR7tgoR0y76:res%2FTiny%20Swords%20%28Free%20Pack%29%2FParticle%20FX%2FWater%20Splash.pngR2i7852R3R4R5y15:building-splashR7tgoR0y34:monster-spider%2FSpider_Attack.pngR2i13968R3R4R5R54R7tgoR0y32:monster-spider%2FSpider_Idle.pngR2i10436R3R4R5R55R7tgoR0y31:monster-spider%2FSpider_Run.pngR2i7589R3R4R5R56R7tgoR0y34:monster-bee%2FBumblebee_Attack.pngR2i25932R3R4R5R57R7tgoR0y32:monster-bee%2FBumblebee_Idle.pngR2i13185R3R4R5R58R7tgoR0y32:monster-bee%2FBumblebee_Move.pngR2i7958R3R4R5R59R7tgoR0y35:monster-demon%2FImp_Attack_Loop.pngR2i9831R3R4R5R60R7tgoR0y28:monster-demon%2FImp_Idle.pngR2i11234R3R4R5R61R7tgoR0y28:monster-demon%2FImp_Move.pngR2i9579R3R4R5R62R7tgoR0y93:res%2FTiny%20Swords%20%28Enemy%20Pack%29%2FEnemy%20Pack%2FExtra%2FFish%20Hut%2FFish%20Hut.pngR2i19631R3R4R5y9:water-hutR7tgoR0y47:seahorse-boat%2FSeahorse%20Boat_Bomb%20Fish.pngR2i12572R3R4R5R65R7tgoR0y51:seahorse-boat%2FSeahorse%20Boat_Harpoon%20Shark.pngR2i14911R3R4R5R66R7tgoR0y40:seahorse-boat%2FSeahorse%20Boat_Idle.pngR2i9380R3R4R5R67R7tgoR0y50:seahorse-boat%2FSeahorse%20Boat_Paddle%20Shark.pngR2i14420R3R4R5R68R7tgoR0y42:monster-harpoon%2FHarpoon%20Shark_Idle.pngR2i7977R3R4R5R69R7tgoR0y41:monster-harpoon%2FHarpoon%20Shark_Run.pngR2i8022R3R4R5R70R7tgoR0y43:monster-harpoon%2FHarpoon%20Shark_Throw.pngR2i12720R3R4R5R71R7tgoR0y42:monster-paddle%2FPaddle%20Shark_Attack.pngR2i13214R3R4R5R72R7tgoR0y40:monster-paddle%2FPaddle%20Shark_Idle.pngR2i9050R3R4R5R73R7tgoR0y39:monster-paddle%2FPaddle%20Shark_Run.pngR2i9056R3R4R5R74R7tgoR0y40:monster-bomb-fish%2FBomb%20Fish_Idle.pngR2i7474R3R4R5R75R7tgoR0y39:monster-bomb-fish%2FBomb%20Fish_Run.pngR2i6675R3R4R5R76R7tgoR0y41:monster-bomb-fish%2FBomb%20Fish_Shoot.pngR2i11378R3R4R5R77R7tgoR0y97:res%2FTiny%20Swords%20%28Enemy%20Pack%29%2FEnemy%20Pack%2FExtra%2FGoblin%20Hut%2FGoblin%20Hut.pngR2i32252R3R4R5y11:monster-hutR7tgoR0y48:monster-spear%2FSpear%20Goblin_Attack%20Fast.pngR2i15338R3R4R5R80R7tgoR0y39:monster-spear%2FSpear%20Goblin_Idle.pngR2i11955R3R4R5R81R7tgoR0y38:monster-spear%2FSpear%20Goblin_Run.pngR2i8652R3R4R5R82R7tgoR0y41:monster-torch%2FTorch%20Goblin_Attack.pngR2i15276R3R4R5R83R7tgoR0y39:monster-torch%2FTorch%20Goblin_Idle.pngR2i10416R3R4R5R84R7tgoR0y38:monster-torch%2FTorch%20Goblin_Run.pngR2i9825R3R4R5R85R7tgoR0y29:enemy-buildings%2FArchery.pngR2i10052R3R4R5R86R7tgoR0y30:enemy-buildings%2FBarracks.pngR2i9876R3R4R5R87R7tgoR0y28:enemy-buildings%2FCastle.pngR2i16914R3R4R5R88R7tgoR0y28:enemy-buildings%2FHouse1.pngR2i5307R3R4R5R89R7tgoR0y28:enemy-buildings%2FHouse2.pngR2i5956R3R4R5R90R7tgoR0y28:enemy-buildings%2FHouse3.pngR2i4429R3R4R5R91R7tgoR0y31:enemy-buildings%2FMonastery.pngR2i11058R3R4R5R92R7tgoR0y27:enemy-buildings%2FTower.pngR2i6464R3R4R5R93R7tgoR0y32:enemy-pawn%2FPawn_Idle%20Axe.pngR2i7419R3R4R5R94R7tgoR0y33:enemy-pawn%2FPawn_Idle%20Gold.pngR2i8566R3R4R5R95R7tgoR0y35:enemy-pawn%2FPawn_Idle%20Hammer.pngR2i7861R3R4R5R96R7tgoR0y34:enemy-pawn%2FPawn_Idle%20Knife.pngR2i7367R3R4R5R97R7tgoR0y33:enemy-pawn%2FPawn_Idle%20Meat.pngR2i9176R3R4R5R98R7tgoR0y36:enemy-pawn%2FPawn_Idle%20Pickaxe.pngR2i7358R3R4R5R99R7tgoR0y33:enemy-pawn%2FPawn_Idle%20Wood.pngR2i7031R3R4R5R100R7tgoR0y26:enemy-pawn%2FPawn_Idle.pngR2i6641R3R4R5R101R7tgoR0y36:enemy-pawn%2FPawn_Interact%20Axe.pngR2i8055R3R4R5R102R7tgoR0y39:enemy-pawn%2FPawn_Interact%20Hammer.pngR2i4995R3R4R5R103R7tgoR0y38:enemy-pawn%2FPawn_Interact%20Knife.pngR2i5742R3R4R5R104R7tgoR0y40:enemy-pawn%2FPawn_Interact%20Pickaxe.pngR2i8501R3R4R5R105R7tgoR0y31:enemy-pawn%2FPawn_Run%20Axe.pngR2i7160R3R4R5R106R7tgoR0y32:enemy-pawn%2FPawn_Run%20Gold.pngR2i7697R3R4R5R107R7tgoR0y34:enemy-pawn%2FPawn_Run%20Hammer.pngR2i7574R3R4R5R108R7tgoR0y33:enemy-pawn%2FPawn_Run%20Knife.pngR2i6775R3R4R5R109R7tgoR0y32:enemy-pawn%2FPawn_Run%20Meat.pngR2i8907R3R4R5R110R7tgoR0y35:enemy-pawn%2FPawn_Run%20Pickaxe.pngR2i6866R3R4R5R111R7tgoR0y32:enemy-pawn%2FPawn_Run%20Wood.pngR2i8054R3R4R5R112R7tgoR0y25:enemy-pawn%2FPawn_Run.pngR2i6055R3R4R5R113R7tgoR0y21:enemy-monk%2FHeal.pngR2i11554R3R4R5R114R7tgoR0y28:enemy-monk%2FHeal_Effect.pngR2i9658R3R4R5R115R7tgoR0y21:enemy-monk%2FIdle.pngR2i6533R3R4R5R116R7tgoR0y20:enemy-monk%2FRun.pngR2i5616R3R4R5R117R7tgoR0y35:enemy-warrior%2FWarrior_Attack1.pngR2i8133R3R4R5R118R7tgoR0y35:enemy-warrior%2FWarrior_Attack2.pngR2i8933R3R4R5R119R7tgoR0y32:enemy-warrior%2FWarrior_Idle.pngR2i9832R3R4R5R120R7tgoR0y31:enemy-warrior%2FWarrior_Run.pngR2i9802R3R4R5R121R7tgoR0y30:enemy-archer%2FArcher_Idle.pngR2i5056R3R4R5R122R7tgoR0y29:enemy-archer%2FArcher_Run.pngR2i5349R3R4R5R123R7tgoR0y31:enemy-archer%2FArcher_Shoot.pngR2i11899R3R4R5R124R7tgoR0y24:enemy-archer%2FArrow.pngR2i416R3R4R5R125R7tgoR0y80:res%2FTiny%20Swords%20%28Free%20Pack%29%2FTerrain%2FTileset%2FTilemap_color1.pngR2i40222R3R4R5y5:tilesR7tgoR0y88:res%2FTiny%20Swords%20%28Free%20Pack%29%2FTerrain%2FResources%2FWood%2FTrees%2FTree1.pngR2i16015R3R4R5y4:treeR7tgoR0y83:res%2FTiny%20Swords%20%28Free%20Pack%29%2FTerrain%2FDecorations%2FRocks%2FRock1.pngR2i577R3R4R5y4:rockR7tgoR0y83:res%2FTiny%20Swords%20%28Free%20Pack%29%2FTerrain%2FDecorations%2FRocks%2FRock3.pngR2i606R3R4R5y11:rock-mediumR7tgoR0y83:res%2FTiny%20Swords%20%28Free%20Pack%29%2FTerrain%2FDecorations%2FRocks%2FRock4.pngR2i900R3R4R5y10:rock-largeR7tgoR0y107:res%2FTiny%20Swords%20%28Free%20Pack%29%2FTerrain%2FResources%2FGold%2FGold%20Stones%2FGold%20Stone%206.pngR2i2146R3R4R5y4:goldR7tgoR0y94:res%2FTiny%20Swords%20%28Free%20Pack%29%2FTerrain%2FResources%2FMeat%2FSheep%2FSheep_Grass.pngR2i4961R3R4R5y5:sheepR7tgoR0y92:res%2FTiny%20Swords%20%28Free%20Pack%29%2FTerrain%2FResources%2FWood%2FTrees%2FStump%201.pngR2i1233R3R4R5y5:stumpR7tgoR0y23:buildings%2FArchery.pngR2i10177R3R4R5R142R7tgoR0y24:buildings%2FBarracks.pngR2i9968R3R4R5R143R7tgoR0y22:buildings%2FCastle.pngR2i17136R3R4R5R144R7tgoR0y22:buildings%2FHouse1.pngR2i5312R3R4R5R145R7tgoR0y22:buildings%2FHouse2.pngR2i5938R3R4R5R146R7tgoR0y22:buildings%2FHouse3.pngR2i4390R3R4R5R147R7tgoR0y25:buildings%2FMonastery.pngR2i11326R3R4R5R148R7tgoR0y21:buildings%2FTower.pngR2i6535R3R4R5R149R7tgoR0y26:pawn%2FPawn_Idle%20Axe.pngR2i7441R3R4R5R150R7tgoR0y27:pawn%2FPawn_Idle%20Gold.pngR2i8571R3R4R5R151R7tgoR0y29:pawn%2FPawn_Idle%20Hammer.pngR2i7913R3R4R5R152R7tgoR0y28:pawn%2FPawn_Idle%20Knife.pngR2i7365R3R4R5R153R7tgoR0y27:pawn%2FPawn_Idle%20Meat.pngR2i9187R3R4R5R154R7tgoR0y30:pawn%2FPawn_Idle%20Pickaxe.pngR2i7396R3R4R5R155R7tgoR0y27:pawn%2FPawn_Idle%20Wood.pngR2i7043R3R4R5R156R7tgoR0y20:pawn%2FPawn_Idle.pngR2i6656R3R4R5R157R7tgoR0y30:pawn%2FPawn_Interact%20Axe.pngR2i8057R3R4R5R158R7tgoR0y33:pawn%2FPawn_Interact%20Hammer.pngR2i4997R3R4R5R159R7tgoR0y32:pawn%2FPawn_Interact%20Knife.pngR2i5742R3R4R5R160R7tgoR0y34:pawn%2FPawn_Interact%20Pickaxe.pngR2i8508R3R4R5R161R7tgoR0y25:pawn%2FPawn_Run%20Axe.pngR2i7175R3R4R5R162R7tgoR0y26:pawn%2FPawn_Run%20Gold.pngR2i7702R3R4R5R163R7tgoR0y28:pawn%2FPawn_Run%20Hammer.pngR2i7610R3R4R5R164R7tgoR0y27:pawn%2FPawn_Run%20Knife.pngR2i6780R3R4R5R165R7tgoR0y26:pawn%2FPawn_Run%20Meat.pngR2i8918R3R4R5R166R7tgoR0y29:pawn%2FPawn_Run%20Pickaxe.pngR2i6879R3R4R5R167R7tgoR0y26:pawn%2FPawn_Run%20Wood.pngR2i8064R3R4R5R168R7tgoR0y19:pawn%2FPawn_Run.pngR2i6078R3R4R5R169R7tgoR0y29:warrior%2FWarrior_Attack1.pngR2i8169R3R4R5R170R7tgoR0y29:warrior%2FWarrior_Attack2.pngR2i8984R3R4R5R171R7tgoR0y26:warrior%2FWarrior_Idle.pngR2i9948R3R4R5R172R7tgoR0y25:warrior%2FWarrior_Run.pngR2i9809R3R4R5R173R7tgoR0y15:monk%2FHeal.pngR2i11616R3R4R5R174R7tgoR0y22:monk%2FHeal_Effect.pngR2i9658R3R4R5R175R7tgoR0y15:monk%2FIdle.pngR2i6531R3R4R5R176R7tgoR0y14:monk%2FRun.pngR2i5590R3R4R5R177R7tgoR0y24:archer%2FArcher_Idle.pngR2i5024R3R4R5R178R7tgoR0y23:archer%2FArcher_Run.pngR2i5327R3R4R5R179R7tgoR0y25:archer%2FArcher_Shoot.pngR2i11874R3R4R5R180R7tgoR0y18:archer%2FArrow.pngR2i416R3R4R5R181R7tgoR0y88:res%2FTiny%20Swords%20%28Free%20Pack%29%2FTerrain%2FDecorations%2FClouds%2FClouds_01.pngR2i4611R3R4R5y7:cloud-1R7tgoR0y88:res%2FTiny%20Swords%20%28Free%20Pack%29%2FTerrain%2FDecorations%2FClouds%2FClouds_02.pngR2i3086R3R4R5y7:cloud-2R7tgoR0y88:res%2FTiny%20Swords%20%28Free%20Pack%29%2FTerrain%2FDecorations%2FClouds%2FClouds_03.pngR2i2195R3R4R5y7:cloud-3R7tgoR0y88:res%2FTiny%20Swords%20%28Free%20Pack%29%2FTerrain%2FDecorations%2FClouds%2FClouds_04.pngR2i1510R3R4R5y7:cloud-4R7tgoR0y88:res%2FTiny%20Swords%20%28Free%20Pack%29%2FTerrain%2FDecorations%2FClouds%2FClouds_05.pngR2i4046R3R4R5y7:cloud-5R7tgoR0y88:res%2FTiny%20Swords%20%28Free%20Pack%29%2FTerrain%2FDecorations%2FClouds%2FClouds_06.pngR2i2973R3R4R5y7:cloud-6R7tgoR0y88:res%2FTiny%20Swords%20%28Free%20Pack%29%2FTerrain%2FDecorations%2FClouds%2FClouds_07.pngR2i2207R3R4R5y7:cloud-7R7tgoR0y88:res%2FTiny%20Swords%20%28Free%20Pack%29%2FTerrain%2FDecorations%2FClouds%2FClouds_08.pngR2i1479R3R4R5y7:cloud-8R7tgoR0R38R2i3967R3R4R5y14:scenery-bush-1R7tgoR0y85:res%2FTiny%20Swords%20%28Free%20Pack%29%2FTerrain%2FDecorations%2FBushes%2FBushe2.pngR2i2815R3R4R5y14:scenery-bush-2R7tgoR0y85:res%2FTiny%20Swords%20%28Free%20Pack%29%2FTerrain%2FDecorations%2FBushes%2FBushe3.pngR2i7879R3R4R5y14:scenery-bush-3R7tgoR0y85:res%2FTiny%20Swords%20%28Free%20Pack%29%2FTerrain%2FDecorations%2FBushes%2FBushe4.pngR2i3860R3R4R5y14:scenery-bush-4R7tgoR0R130R2i577R3R4R5y14:scenery-rock-1R7tgoR0y83:res%2FTiny%20Swords%20%28Free%20Pack%29%2FTerrain%2FDecorations%2FRocks%2FRock2.pngR2i805R3R4R5y14:scenery-rock-2R7tgoR0R132R2i606R3R4R5y14:scenery-rock-3R7tgoR0R134R2i900R3R4R5y14:scenery-rock-4R7tgoR0R40R2i3518R3R4R5y15:scenery-water-1R7tgoR0y113:res%2FTiny%20Swords%20%28Free%20Pack%29%2FTerrain%2FDecorations%2FRocks%20in%20the%20Water%2FWater%20Rocks_02.pngR2i4906R3R4R5y15:scenery-water-2R7tgoR0y113:res%2FTiny%20Swords%20%28Free%20Pack%29%2FTerrain%2FDecorations%2FRocks%20in%20the%20Water%2FWater%20Rocks_03.pngR2i3817R3R4R5y15:scenery-water-3R7tgoR0y113:res%2FTiny%20Swords%20%28Free%20Pack%29%2FTerrain%2FDecorations%2FRocks%20in%20the%20Water%2FWater%20Rocks_04.pngR2i5881R3R4R5y15:scenery-water-4R7tgoR0y99:res%2FTiny%20Swords%20%28Free%20Pack%29%2FTerrain%2FDecorations%2FRubber%20Duck%2FRubber%20duck.pngR2i1090R3R4R5y6:duck-1R7tgoR0y62:res%2FGenerated%2FCastleWalls%2Fcastle-wall-perspective-v2.pngR2i1760706R3R4R5y12:castle-wallsR7tgoR0y93:res%2FTiny%20Swords%20%28Free%20Pack%29%2FTerrain%2FResources%2FMeat%2FSheep%2FSheep_Move.pngR2i3131R3R4R5y10:sheep-walkR7tgoR0y93:res%2FTiny%20Swords%20%28Free%20Pack%29%2FTerrain%2FResources%2FMeat%2FSheep%2FSheep_Idle.pngR2i2813R3R4R5y10:sheep-idleR7tgoR0y69:res%2FTiny%20Swords%20%28Free%20Pack%29%2FParticle%20FX%2FDust_01.pngR2i2244R3R4R5y15:unit-death-dustR7tgoR0y98:res%2FTiny%20Swords%20%28Free%20Pack%29%2FUI%20Elements%2FUI%20Elements%2FBars%2FSmallBar_Base.pngR2i639R3R4R5y15:health-bar-baseR7tgoR0y98:res%2FTiny%20Swords%20%28Free%20Pack%29%2FUI%20Elements%2FUI%20Elements%2FBars%2FSmallBar_Fill.pngR2i127R3R4R5y15:health-bar-fillR7tgoR0y86:res%2FTiny%20Swords%20%28Enemy%20Pack%29%2FEnemy%20Pack%2FExtra%2FBoat%2FBoat_Idle.pngR2i11622R3R4R5y11:player-boatR7tgoR0y78:res%2FTiny%20Swords%20%28Enemy%20Pack%29%2FEnemy%20Pack%2FBear%2FBear_Idle.pngR2i11519R3R4R5y21:editor-monster-0-idleR7tgoR0y77:res%2FTiny%20Swords%20%28Enemy%20Pack%29%2FEnemy%20Pack%2FBear%2FBear_Run.pngR2i12317R3R4R5y20:editor-monster-0-runR7tgoR0y80:res%2FTiny%20Swords%20%28Enemy%20Pack%29%2FEnemy%20Pack%2FBear%2FBear_Attack.pngR2i24517R3R4R5y23:editor-monster-0-attackR7tgoR0y92:res%2FTiny%20Swords%20%28Enemy%20Pack%29%2FEnemy%20Pack%2FBomb%20Fish%2FBomb%20Fish_Idle.pngR2i7474R3R4R5y21:editor-monster-1-idleR7tgoR0y91:res%2FTiny%20Swords%20%28Enemy%20Pack%29%2FEnemy%20Pack%2FBomb%20Fish%2FBomb%20Fish_Run.pngR2i6675R3R4R5y20:editor-monster-1-runR7tgoR0y93:res%2FTiny%20Swords%20%28Enemy%20Pack%29%2FEnemy%20Pack%2FBomb%20Fish%2FBomb%20Fish_Shoot.pngR2i11378R3R4R5y23:editor-monster-1-attackR7tgoR0y88:res%2FTiny%20Swords%20%28Enemy%20Pack%29%2FEnemy%20Pack%2FBumblebee%2FBumblebee_Idle.pngR2i13185R3R4R5y21:editor-monster-2-idleR7tgoR0y88:res%2FTiny%20Swords%20%28Enemy%20Pack%29%2FEnemy%20Pack%2FBumblebee%2FBumblebee_Move.pngR2i7958R3R4R5y20:editor-monster-2-runR7tgoR0y90:res%2FTiny%20Swords%20%28Enemy%20Pack%29%2FEnemy%20Pack%2FBumblebee%2FBumblebee_Attack.pngR2i25932R3R4R5y23:editor-monster-2-attackR7tgoR0y92:res%2FTiny%20Swords%20%28Enemy%20Pack%29%2FEnemy%20Pack%2FGiant%20Bat%2FGiant%20Bat_Idle.pngR2i12762R3R4R5y21:editor-monster-3-idleR7tgoR0y92:res%2FTiny%20Swords%20%28Enemy%20Pack%29%2FEnemy%20Pack%2FGiant%20Bat%2FGiant%20Bat_Move.pngR2i8136R3R4R5y20:editor-monster-3-runR7tgoR0y94:res%2FTiny%20Swords%20%28Enemy%20Pack%29%2FEnemy%20Pack%2FGiant%20Bat%2FGiant%20Bat_Attack.pngR2i17102R3R4R5y23:editor-monster-3-attackR7tgoR0y80:res%2FTiny%20Swords%20%28Enemy%20Pack%29%2FEnemy%20Pack%2FGnoll%2FGnoll_Idle.pngR2i8284R3R4R5y21:editor-monster-4-idleR7tgoR0y80:res%2FTiny%20Swords%20%28Enemy%20Pack%29%2FEnemy%20Pack%2FGnoll%2FGnoll_Walk.pngR2i11350R3R4R5y20:editor-monster-4-runR7tgoR0y81:res%2FTiny%20Swords%20%28Enemy%20Pack%29%2FEnemy%20Pack%2FGnoll%2FGnoll_Throw.pngR2i15109R3R4R5y23:editor-monster-4-attackR7tgoR0y80:res%2FTiny%20Swords%20%28Enemy%20Pack%29%2FEnemy%20Pack%2FGnome%2FGnome_Idle.pngR2i7239R3R4R5y21:editor-monster-5-idleR7tgoR0y79:res%2FTiny%20Swords%20%28Enemy%20Pack%29%2FEnemy%20Pack%2FGnome%2FGnome_Run.pngR2i5522R3R4R5y20:editor-monster-5-runR7tgoR0y82:res%2FTiny%20Swords%20%28Enemy%20Pack%29%2FEnemy%20Pack%2FGnome%2FGnome_Attack.pngR2i9486R3R4R5y23:editor-monster-5-attackR7tgoR0y100:res%2FTiny%20Swords%20%28Enemy%20Pack%29%2FEnemy%20Pack%2FHarpoon%20Shark%2FHarpoon%20Shark_Idle.pngR2i7977R3R4R5y21:editor-monster-6-idleR7tgoR0y99:res%2FTiny%20Swords%20%28Enemy%20Pack%29%2FEnemy%20Pack%2FHarpoon%20Shark%2FHarpoon%20Shark_Run.pngR2i8022R3R4R5y20:editor-monster-6-runR7tgoR0y101:res%2FTiny%20Swords%20%28Enemy%20Pack%29%2FEnemy%20Pack%2FHarpoon%20Shark%2FHarpoon%20Shark_Throw.pngR2i12720R3R4R5y23:editor-monster-6-attackR7tgoR0y94:res%2FTiny%20Swords%20%28Enemy%20Pack%29%2FEnemy%20Pack%2FHex%20Shaman%2FHex%20Shaman_Idle.pngR2i10450R3R4R5y21:editor-monster-7-idleR7tgoR0y93:res%2FTiny%20Swords%20%28Enemy%20Pack%29%2FEnemy%20Pack%2FHex%20Shaman%2FHex%20Shaman_Run.pngR2i9361R3R4R5y20:editor-monster-7-runR7tgoR0y96:res%2FTiny%20Swords%20%28Enemy%20Pack%29%2FEnemy%20Pack%2FHex%20Shaman%2FHex%20Shaman_Attack.pngR2i17898R3R4R5y23:editor-monster-7-attackR7tgoR0y76:res%2FTiny%20Swords%20%28Enemy%20Pack%29%2FEnemy%20Pack%2FImp%2FImp_Idle.pngR2i11234R3R4R5y21:editor-monster-8-idleR7tgoR0y76:res%2FTiny%20Swords%20%28Enemy%20Pack%29%2FEnemy%20Pack%2FImp%2FImp_Move.pngR2i9579R3R4R5y20:editor-monster-8-runR7tgoR0y83:res%2FTiny%20Swords%20%28Enemy%20Pack%29%2FEnemy%20Pack%2FImp%2FImp_Attack_Loop.pngR2i9831R3R4R5y23:editor-monster-8-attackR7tgoR0y82:res%2FTiny%20Swords%20%28Enemy%20Pack%29%2FEnemy%20Pack%2FLizard%2FLizard_Idle.pngR2i9390R3R4R5y21:editor-monster-9-idleR7tgoR0y81:res%2FTiny%20Swords%20%28Enemy%20Pack%29%2FEnemy%20Pack%2FLizard%2FLizard_Run.pngR2i9092R3R4R5y20:editor-monster-9-runR7tgoR0y84:res%2FTiny%20Swords%20%28Enemy%20Pack%29%2FEnemy%20Pack%2FLizard%2FLizard_Attack.pngR2i21318R3R4R5y23:editor-monster-9-attackR7tgoR0y86:res%2FTiny%20Swords%20%28Enemy%20Pack%29%2FEnemy%20Pack%2FMinotaur%2FMinotaur_Idle.pngR2i29243R3R4R5y22:editor-monster-10-idleR7tgoR0y86:res%2FTiny%20Swords%20%28Enemy%20Pack%29%2FEnemy%20Pack%2FMinotaur%2FMinotaur_Walk.pngR2i23671R3R4R5y21:editor-monster-10-runR7tgoR0y88:res%2FTiny%20Swords%20%28Enemy%20Pack%29%2FEnemy%20Pack%2FMinotaur%2FMinotaur_Attack.pngR2i45617R3R4R5y24:editor-monster-10-attackR7tgoR0y98:res%2FTiny%20Swords%20%28Enemy%20Pack%29%2FEnemy%20Pack%2FPaddle%20Shark%2FPaddle%20Shark_Idle.pngR2i9050R3R4R5y22:editor-monster-11-idleR7tgoR0y97:res%2FTiny%20Swords%20%28Enemy%20Pack%29%2FEnemy%20Pack%2FPaddle%20Shark%2FPaddle%20Shark_Run.pngR2i9056R3R4R5y21:editor-monster-11-runR7tgoR0y100:res%2FTiny%20Swords%20%28Enemy%20Pack%29%2FEnemy%20Pack%2FPaddle%20Shark%2FPaddle%20Shark_Attack.pngR2i13214R3R4R5y24:editor-monster-11-attackR7tgoR0y80:res%2FTiny%20Swords%20%28Enemy%20Pack%29%2FEnemy%20Pack%2FPanda%2FPanda_Idle.pngR2i13434R3R4R5y22:editor-monster-12-idleR7tgoR0y79:res%2FTiny%20Swords%20%28Enemy%20Pack%29%2FEnemy%20Pack%2FPanda%2FPanda_Run.pngR2i10412R3R4R5y21:editor-monster-12-runR7tgoR0y82:res%2FTiny%20Swords%20%28Enemy%20Pack%29%2FEnemy%20Pack%2FPanda%2FPanda_Attack.pngR2i33603R3R4R5y24:editor-monster-12-attackR7tgoR0y80:res%2FTiny%20Swords%20%28Enemy%20Pack%29%2FEnemy%20Pack%2FSkull%2FSkull_Idle.pngR2i7867R3R4R5y22:editor-monster-13-idleR7tgoR0y79:res%2FTiny%20Swords%20%28Enemy%20Pack%29%2FEnemy%20Pack%2FSkull%2FSkull_Run.pngR2i7599R3R4R5y21:editor-monster-13-runR7tgoR0y82:res%2FTiny%20Swords%20%28Enemy%20Pack%29%2FEnemy%20Pack%2FSkull%2FSkull_Attack.pngR2i9556R3R4R5y24:editor-monster-13-attackR7tgoR0y104:res%2FTiny%20Swords%20%28Enemy%20Pack%29%2FEnemy%20Pack%2FSlingshot%20Gnome%2FSlingshot%20Gnome_Idle.pngR2i8779R3R4R5y22:editor-monster-14-idleR7tgoR0y103:res%2FTiny%20Swords%20%28Enemy%20Pack%29%2FEnemy%20Pack%2FSlingshot%20Gnome%2FSlingshot%20Gnome_Run.pngR2i6662R3R4R5y21:editor-monster-14-runR7tgoR0y105:res%2FTiny%20Swords%20%28Enemy%20Pack%29%2FEnemy%20Pack%2FSlingshot%20Gnome%2FSlingshot%20Gnome_Shoot.pngR2i10695R3R4R5y24:editor-monster-14-attackR7tgoR0y80:res%2FTiny%20Swords%20%28Enemy%20Pack%29%2FEnemy%20Pack%2FSnake%2FSnake_Idle.pngR2i12613R3R4R5y22:editor-monster-15-idleR7tgoR0y79:res%2FTiny%20Swords%20%28Enemy%20Pack%29%2FEnemy%20Pack%2FSnake%2FSnake_Run.pngR2i12677R3R4R5y21:editor-monster-15-runR7tgoR0y82:res%2FTiny%20Swords%20%28Enemy%20Pack%29%2FEnemy%20Pack%2FSnake%2FSnake_Attack.pngR2i14064R3R4R5y24:editor-monster-15-attackR7tgoR0y98:res%2FTiny%20Swords%20%28Enemy%20Pack%29%2FEnemy%20Pack%2FSpear%20Goblin%2FSpear%20Goblin_Idle.pngR2i11955R3R4R5y22:editor-monster-16-idleR7tgoR0y97:res%2FTiny%20Swords%20%28Enemy%20Pack%29%2FEnemy%20Pack%2FSpear%20Goblin%2FSpear%20Goblin_Run.pngR2i8652R3R4R5y21:editor-monster-16-runR7tgoR0y107:res%2FTiny%20Swords%20%28Enemy%20Pack%29%2FEnemy%20Pack%2FSpear%20Goblin%2FSpear%20Goblin_Attack%20Fast.pngR2i15338R3R4R5y24:editor-monster-16-attackR7tgoR0y82:res%2FTiny%20Swords%20%28Enemy%20Pack%29%2FEnemy%20Pack%2FSpider%2FSpider_Idle.pngR2i10436R3R4R5y22:editor-monster-17-idleR7tgoR0y81:res%2FTiny%20Swords%20%28Enemy%20Pack%29%2FEnemy%20Pack%2FSpider%2FSpider_Run.pngR2i7589R3R4R5y21:editor-monster-17-runR7tgoR0y84:res%2FTiny%20Swords%20%28Enemy%20Pack%29%2FEnemy%20Pack%2FSpider%2FSpider_Attack.pngR2i13968R3R4R5y24:editor-monster-17-attackR7tgoR0y80:res%2FTiny%20Swords%20%28Enemy%20Pack%29%2FEnemy%20Pack%2FThief%2FThief_Idle.pngR2i6921R3R4R5y22:editor-monster-18-idleR7tgoR0y79:res%2FTiny%20Swords%20%28Enemy%20Pack%29%2FEnemy%20Pack%2FThief%2FThief_Run.pngR2i7444R3R4R5y21:editor-monster-18-runR7tgoR0y82:res%2FTiny%20Swords%20%28Enemy%20Pack%29%2FEnemy%20Pack%2FThief%2FThief_Attack.pngR2i9880R3R4R5y24:editor-monster-18-attackR7tgoR0y98:res%2FTiny%20Swords%20%28Enemy%20Pack%29%2FEnemy%20Pack%2FTorch%20Goblin%2FTorch%20Goblin_Idle.pngR2i10416R3R4R5y22:editor-monster-19-idleR7tgoR0y97:res%2FTiny%20Swords%20%28Enemy%20Pack%29%2FEnemy%20Pack%2FTorch%20Goblin%2FTorch%20Goblin_Run.pngR2i9825R3R4R5y21:editor-monster-19-runR7tgoR0y100:res%2FTiny%20Swords%20%28Enemy%20Pack%29%2FEnemy%20Pack%2FTorch%20Goblin%2FTorch%20Goblin_Attack.pngR2i15276R3R4R5y24:editor-monster-19-attackR7tgoR0y80:res%2FTiny%20Swords%20%28Enemy%20Pack%29%2FEnemy%20Pack%2FTroll%2FTroll_Idle.pngR2i38268R3R4R5y22:editor-monster-20-idleR7tgoR0y80:res%2FTiny%20Swords%20%28Enemy%20Pack%29%2FEnemy%20Pack%2FTroll%2FTroll_Walk.pngR2i50868R3R4R5y21:editor-monster-20-runR7tgoR0y82:res%2FTiny%20Swords%20%28Enemy%20Pack%29%2FEnemy%20Pack%2FTroll%2FTroll_Attack.pngR2i43240R3R4R5y24:editor-monster-20-attackR7tgoR0y82:res%2FTiny%20Swords%20%28Enemy%20Pack%29%2FEnemy%20Pack%2FTurtle%2FTurtle_Idle.pngR2i17616R3R4R5y22:editor-monster-21-idleR7tgoR0y82:res%2FTiny%20Swords%20%28Enemy%20Pack%29%2FEnemy%20Pack%2FTurtle%2FTurtle_Walk.pngR2i17070R3R4R5y21:editor-monster-21-runR7tgoR0y84:res%2FTiny%20Swords%20%28Enemy%20Pack%29%2FEnemy%20Pack%2FTurtle%2FTurtle_Attack.pngR2i22280R3R4R5y24:editor-monster-21-attackR7tgoR0y84:res%2FTiny%20Swords%20%28Enemy%20Pack%29%2FEnemy%20Pack%2FExtra%2FPig%2FPig_Idle.pngR2i6151R3R4R5y22:editor-monster-22-idleR7tgoR0y83:res%2FTiny%20Swords%20%28Enemy%20Pack%29%2FEnemy%20Pack%2FExtra%2FPig%2FPig_Run.pngR2i4470R3R4R5y21:editor-monster-22-runR7tgoR0R365R2i6151R3R4R5y24:editor-monster-22-attackR7tgoR0y117:res%2FTiny%20Swords%20%28Enemy%20Pack%29%2FEnemy%20Pack%2FExtra%2FPig%20Rider%20Spear%20Goblin%2FPig%20Rider_Idle.pngR2i14685R3R4R5y22:editor-monster-23-idleR7tgoR0y116:res%2FTiny%20Swords%20%28Enemy%20Pack%29%2FEnemy%20Pack%2FExtra%2FPig%20Rider%20Spear%20Goblin%2FPig%20Rider_Run.pngR2i11136R3R4R5y21:editor-monster-23-runR7tgoR0y119:res%2FTiny%20Swords%20%28Enemy%20Pack%29%2FEnemy%20Pack%2FExtra%2FPig%20Rider%20Spear%20Goblin%2FPig%20Rider_Attack.pngR2i19382R3R4R5y24:editor-monster-23-attackR7tgoR0y56:editor-human%2FYellow%20Units%2FArcher%2FArcher_Idle.pngR2i5044R3R4R5R376R7tgoR0y55:editor-human%2FYellow%20Units%2FArcher%2FArcher_Run.pngR2i5357R3R4R5R377R7tgoR0y57:editor-human%2FYellow%20Units%2FArcher%2FArcher_Shoot.pngR2i11996R3R4R5R378R7tgoR0y50:editor-human%2FYellow%20Units%2FArcher%2FArrow.pngR2i416R3R4R5R379R7tgoR0y68:editor-human%2FYellow%20Units%2FLancer%2FLancer_DownRight_Attack.pngR2i6800R3R4R5R380R7tgoR0y69:editor-human%2FYellow%20Units%2FLancer%2FLancer_DownRight_Defence.pngR2i8672R3R4R5R381R7tgoR0y63:editor-human%2FYellow%20Units%2FLancer%2FLancer_Down_Attack.pngR2i6116R3R4R5R382R7tgoR0y64:editor-human%2FYellow%20Units%2FLancer%2FLancer_Down_Defence.pngR2i7264R3R4R5R383R7tgoR0y56:editor-human%2FYellow%20Units%2FLancer%2FLancer_Idle.pngR2i13325R3R4R5R384R7tgoR0y64:editor-human%2FYellow%20Units%2FLancer%2FLancer_Right_Attack.pngR2i4804R3R4R5R385R7tgoR0y65:editor-human%2FYellow%20Units%2FLancer%2FLancer_Right_Defence.pngR2i7393R3R4R5R386R7tgoR0y55:editor-human%2FYellow%20Units%2FLancer%2FLancer_Run.pngR2i11241R3R4R5R387R7tgoR0y66:editor-human%2FYellow%20Units%2FLancer%2FLancer_UpRight_Attack.pngR2i5906R3R4R5R388R7tgoR0y67:editor-human%2FYellow%20Units%2FLancer%2FLancer_UpRight_Defence.pngR2i7956R3R4R5R389R7tgoR0y61:editor-human%2FYellow%20Units%2FLancer%2FLancer_Up_Attack.pngR2i5173R3R4R5R390R7tgoR0y62:editor-human%2FYellow%20Units%2FLancer%2FLancer_Up_Defence.pngR2i6944R3R4R5R391R7tgoR0y47:editor-human%2FYellow%20Units%2FMonk%2FHeal.pngR2i11570R3R4R5R392R7tgoR0y54:editor-human%2FYellow%20Units%2FMonk%2FHeal_Effect.pngR2i9658R3R4R5R393R7tgoR0y47:editor-human%2FYellow%20Units%2FMonk%2FIdle.pngR2i6535R3R4R5R394R7tgoR0y46:editor-human%2FYellow%20Units%2FMonk%2FRun.pngR2i5583R3R4R5R395R7tgoR0y58:editor-human%2FYellow%20Units%2FPawn%2FPawn_Idle%20Axe.pngR2i7439R3R4R5R396R7tgoR0y59:editor-human%2FYellow%20Units%2FPawn%2FPawn_Idle%20Gold.pngR2i8597R3R4R5R397R7tgoR0y61:editor-human%2FYellow%20Units%2FPawn%2FPawn_Idle%20Hammer.pngR2i7877R3R4R5R398R7tgoR0y60:editor-human%2FYellow%20Units%2FPawn%2FPawn_Idle%20Knife.pngR2i7366R3R4R5R399R7tgoR0y59:editor-human%2FYellow%20Units%2FPawn%2FPawn_Idle%20Meat.pngR2i9187R3R4R5R400R7tgoR0y62:editor-human%2FYellow%20Units%2FPawn%2FPawn_Idle%20Pickaxe.pngR2i7373R3R4R5R401R7tgoR0y59:editor-human%2FYellow%20Units%2FPawn%2FPawn_Idle%20Wood.pngR2i7037R3R4R5R402R7tgoR0y52:editor-human%2FYellow%20Units%2FPawn%2FPawn_Idle.pngR2i6652R3R4R5R403R7tgoR0y62:editor-human%2FYellow%20Units%2FPawn%2FPawn_Interact%20Axe.pngR2i8056R3R4R5R404R7tgoR0y65:editor-human%2FYellow%20Units%2FPawn%2FPawn_Interact%20Hammer.pngR2i4996R3R4R5R405R7tgoR0y64:editor-human%2FYellow%20Units%2FPawn%2FPawn_Interact%20Knife.pngR2i5744R3R4R5R406R7tgoR0y66:editor-human%2FYellow%20Units%2FPawn%2FPawn_Interact%20Pickaxe.pngR2i8508R3R4R5R407R7tgoR0y57:editor-human%2FYellow%20Units%2FPawn%2FPawn_Run%20Axe.pngR2i7177R3R4R5R408R7tgoR0y58:editor-human%2FYellow%20Units%2FPawn%2FPawn_Run%20Gold.pngR2i7698R3R4R5R409R7tgoR0y60:editor-human%2FYellow%20Units%2FPawn%2FPawn_Run%20Hammer.pngR2i7605R3R4R5R410R7tgoR0y59:editor-human%2FYellow%20Units%2FPawn%2FPawn_Run%20Knife.pngR2i6778R3R4R5R411R7tgoR0y58:editor-human%2FYellow%20Units%2FPawn%2FPawn_Run%20Meat.pngR2i8915R3R4R5R412R7tgoR0y61:editor-human%2FYellow%20Units%2FPawn%2FPawn_Run%20Pickaxe.pngR2i6876R3R4R5R413R7tgoR0y58:editor-human%2FYellow%20Units%2FPawn%2FPawn_Run%20Wood.pngR2i8060R3R4R5R414R7tgoR0y51:editor-human%2FYellow%20Units%2FPawn%2FPawn_Run.pngR2i6080R3R4R5R415R7tgoR0y61:editor-human%2FYellow%20Units%2FWarrior%2FWarrior_Attack1.pngR2i8127R3R4R5R416R7tgoR0y61:editor-human%2FYellow%20Units%2FWarrior%2FWarrior_Attack2.pngR2i8939R3R4R5R417R7tgoR0y59:editor-human%2FYellow%20Units%2FWarrior%2FWarrior_Guard.pngR2i7394R3R4R5R418R7tgoR0y58:editor-human%2FYellow%20Units%2FWarrior%2FWarrior_Idle.pngR2i9828R3R4R5R419R7tgoR0y57:editor-human%2FYellow%20Units%2FWarrior%2FWarrior_Run.pngR2i9805R3R4R5R420R7tgoR0y39:editor-buildings%2FYellow%2FArchery.pngR2i10266R3R4R5R421R7tgoR0y40:editor-buildings%2FYellow%2FBarracks.pngR2i9970R3R4R5R422R7tgoR0y38:editor-buildings%2FYellow%2FCastle.pngR2i17151R3R4R5R423R7tgoR0y38:editor-buildings%2FYellow%2FHouse1.pngR2i5349R3R4R5R424R7tgoR0y38:editor-buildings%2FYellow%2FHouse2.pngR2i5954R3R4R5R425R7tgoR0y38:editor-buildings%2FYellow%2FHouse3.pngR2i4461R3R4R5R426R7tgoR0y41:editor-buildings%2FYellow%2FMonastery.pngR2i11334R3R4R5R427R7tgoR0y37:editor-buildings%2FYellow%2FTower.pngR2i6581R3R4R5R428R7tgoR0y56:editor-human%2FPurple%20Units%2FArcher%2FArcher_Idle.pngR2i5045R3R4R5R429R7tgoR0y55:editor-human%2FPurple%20Units%2FArcher%2FArcher_Run.pngR2i5334R3R4R5R430R7tgoR0y57:editor-human%2FPurple%20Units%2FArcher%2FArcher_Shoot.pngR2i11960R3R4R5R431R7tgoR0y50:editor-human%2FPurple%20Units%2FArcher%2FArrow.pngR2i416R3R4R5R432R7tgoR0y68:editor-human%2FPurple%20Units%2FLancer%2FLancer_DownRight_Attack.pngR2i6735R3R4R5R433R7tgoR0y69:editor-human%2FPurple%20Units%2FLancer%2FLancer_DownRight_Defence.pngR2i8653R3R4R5R434R7tgoR0y63:editor-human%2FPurple%20Units%2FLancer%2FLancer_Down_Attack.pngR2i6053R3R4R5R435R7tgoR0y64:editor-human%2FPurple%20Units%2FLancer%2FLancer_Down_Defence.pngR2i7289R3R4R5R436R7tgoR0y56:editor-human%2FPurple%20Units%2FLancer%2FLancer_Idle.pngR2i13247R3R4R5R437R7tgoR0y64:editor-human%2FPurple%20Units%2FLancer%2FLancer_Right_Attack.pngR2i4780R3R4R5R438R7tgoR0y65:editor-human%2FPurple%20Units%2FLancer%2FLancer_Right_Defence.pngR2i7364R3R4R5R439R7tgoR0y55:editor-human%2FPurple%20Units%2FLancer%2FLancer_Run.pngR2i11182R3R4R5R440R7tgoR0y66:editor-human%2FPurple%20Units%2FLancer%2FLancer_UpRight_Attack.pngR2i5919R3R4R5R441R7tgoR0y67:editor-human%2FPurple%20Units%2FLancer%2FLancer_UpRight_Defence.pngR2i7891R3R4R5R442R7tgoR0y61:editor-human%2FPurple%20Units%2FLancer%2FLancer_Up_Attack.pngR2i5194R3R4R5R443R7tgoR0y62:editor-human%2FPurple%20Units%2FLancer%2FLancer_Up_Defence.pngR2i6976R3R4R5R444R7tgoR0y47:editor-human%2FPurple%20Units%2FMonk%2FHeal.pngR2i11586R3R4R5R445R7tgoR0y54:editor-human%2FPurple%20Units%2FMonk%2FHeal_Effect.pngR2i9658R3R4R5R446R7tgoR0y47:editor-human%2FPurple%20Units%2FMonk%2FIdle.pngR2i6519R3R4R5R447R7tgoR0y46:editor-human%2FPurple%20Units%2FMonk%2FRun.pngR2i5576R3R4R5R448R7tgoR0y58:editor-human%2FPurple%20Units%2FPawn%2FPawn_Idle%20Axe.pngR2i7420R3R4R5R449R7tgoR0y59:editor-human%2FPurple%20Units%2FPawn%2FPawn_Idle%20Gold.pngR2i8568R3R4R5R450R7tgoR0y61:editor-human%2FPurple%20Units%2FPawn%2FPawn_Idle%20Hammer.pngR2i7860R3R4R5R451R7tgoR0y60:editor-human%2FPurple%20Units%2FPawn%2FPawn_Idle%20Knife.pngR2i7365R3R4R5R452R7tgoR0y59:editor-human%2FPurple%20Units%2FPawn%2FPawn_Idle%20Meat.pngR2i9179R3R4R5R453R7tgoR0y62:editor-human%2FPurple%20Units%2FPawn%2FPawn_Idle%20Pickaxe.pngR2i7355R3R4R5R454R7tgoR0y59:editor-human%2FPurple%20Units%2FPawn%2FPawn_Idle%20Wood.pngR2i7029R3R4R5R455R7tgoR0y52:editor-human%2FPurple%20Units%2FPawn%2FPawn_Idle.pngR2i6638R3R4R5R456R7tgoR0y62:editor-human%2FPurple%20Units%2FPawn%2FPawn_Interact%20Axe.pngR2i8053R3R4R5R457R7tgoR0y65:editor-human%2FPurple%20Units%2FPawn%2FPawn_Interact%20Hammer.pngR2i4993R3R4R5R458R7tgoR0y64:editor-human%2FPurple%20Units%2FPawn%2FPawn_Interact%20Knife.pngR2i5741R3R4R5R459R7tgoR0y66:editor-human%2FPurple%20Units%2FPawn%2FPawn_Interact%20Pickaxe.pngR2i8506R3R4R5R460R7tgoR0y57:editor-human%2FPurple%20Units%2FPawn%2FPawn_Run%20Axe.pngR2i7159R3R4R5R461R7tgoR0y58:editor-human%2FPurple%20Units%2FPawn%2FPawn_Run%20Gold.pngR2i7692R3R4R5R462R7tgoR0y60:editor-human%2FPurple%20Units%2FPawn%2FPawn_Run%20Hammer.pngR2i7592R3R4R5R463R7tgoR0y59:editor-human%2FPurple%20Units%2FPawn%2FPawn_Run%20Knife.pngR2i6775R3R4R5R464R7tgoR0y58:editor-human%2FPurple%20Units%2FPawn%2FPawn_Run%20Meat.pngR2i8909R3R4R5R465R7tgoR0y61:editor-human%2FPurple%20Units%2FPawn%2FPawn_Run%20Pickaxe.pngR2i6863R3R4R5R466R7tgoR0y58:editor-human%2FPurple%20Units%2FPawn%2FPawn_Run%20Wood.pngR2i8052R3R4R5R467R7tgoR0y51:editor-human%2FPurple%20Units%2FPawn%2FPawn_Run.pngR2i6064R3R4R5R468R7tgoR0y61:editor-human%2FPurple%20Units%2FWarrior%2FWarrior_Attack1.pngR2i8150R3R4R5R469R7tgoR0y61:editor-human%2FPurple%20Units%2FWarrior%2FWarrior_Attack2.pngR2i8972R3R4R5R470R7tgoR0y59:editor-human%2FPurple%20Units%2FWarrior%2FWarrior_Guard.pngR2i7440R3R4R5R471R7tgoR0y58:editor-human%2FPurple%20Units%2FWarrior%2FWarrior_Idle.pngR2i9829R3R4R5R472R7tgoR0y57:editor-human%2FPurple%20Units%2FWarrior%2FWarrior_Run.pngR2i9759R3R4R5R473R7tgoR0y39:editor-buildings%2FPurple%2FArchery.pngR2i10144R3R4R5R474R7tgoR0y40:editor-buildings%2FPurple%2FBarracks.pngR2i9946R3R4R5R475R7tgoR0y38:editor-buildings%2FPurple%2FCastle.pngR2i17023R3R4R5R476R7tgoR0y38:editor-buildings%2FPurple%2FHouse1.pngR2i5388R3R4R5R477R7tgoR0y38:editor-buildings%2FPurple%2FHouse2.pngR2i5943R3R4R5R478R7tgoR0y38:editor-buildings%2FPurple%2FHouse3.pngR2i4369R3R4R5R479R7tgoR0y41:editor-buildings%2FPurple%2FMonastery.pngR2i11273R3R4R5R480R7tgoR0y37:editor-buildings%2FPurple%2FTower.pngR2i6494R3R4R5R481R7tgoR0y55:editor-human%2FBlack%20Units%2FArcher%2FArcher_Idle.pngR2i5067R3R4R5R482R7tgoR0y54:editor-human%2FBlack%20Units%2FArcher%2FArcher_Run.pngR2i5370R3R4R5R483R7tgoR0y56:editor-human%2FBlack%20Units%2FArcher%2FArcher_Shoot.pngR2i11952R3R4R5R484R7tgoR0y49:editor-human%2FBlack%20Units%2FArcher%2FArrow.pngR2i416R3R4R5R485R7tgoR0y67:editor-human%2FBlack%20Units%2FLancer%2FLancer_DownRight_Attack.pngR2i6669R3R4R5R486R7tgoR0y68:editor-human%2FBlack%20Units%2FLancer%2FLancer_DownRight_Defence.pngR2i8632R3R4R5R487R7tgoR0y62:editor-human%2FBlack%20Units%2FLancer%2FLancer_Down_Attack.pngR2i6037R3R4R5R488R7tgoR0y63:editor-human%2FBlack%20Units%2FLancer%2FLancer_Down_Defence.pngR2i7215R3R4R5R489R7tgoR0y55:editor-human%2FBlack%20Units%2FLancer%2FLancer_Idle.pngR2i13249R3R4R5R490R7tgoR0y63:editor-human%2FBlack%20Units%2FLancer%2FLancer_Right_Attack.pngR2i4757R3R4R5R491R7tgoR0y64:editor-human%2FBlack%20Units%2FLancer%2FLancer_Right_Defence.pngR2i7403R3R4R5R492R7tgoR0y54:editor-human%2FBlack%20Units%2FLancer%2FLancer_Run.pngR2i11092R3R4R5R493R7tgoR0y65:editor-human%2FBlack%20Units%2FLancer%2FLancer_UpRight_Attack.pngR2i5863R3R4R5R494R7tgoR0y66:editor-human%2FBlack%20Units%2FLancer%2FLancer_UpRight_Defence.pngR2i7926R3R4R5R495R7tgoR0y60:editor-human%2FBlack%20Units%2FLancer%2FLancer_Up_Attack.pngR2i5139R3R4R5R496R7tgoR0y61:editor-human%2FBlack%20Units%2FLancer%2FLancer_Up_Defence.pngR2i7040R3R4R5R497R7tgoR0y46:editor-human%2FBlack%20Units%2FMonk%2FHeal.pngR2i11572R3R4R5R498R7tgoR0y53:editor-human%2FBlack%20Units%2FMonk%2FHeal_Effect.pngR2i9658R3R4R5R499R7tgoR0y46:editor-human%2FBlack%20Units%2FMonk%2FIdle.pngR2i6482R3R4R5R500R7tgoR0y45:editor-human%2FBlack%20Units%2FMonk%2FRun.pngR2i5600R3R4R5R501R7tgoR0y57:editor-human%2FBlack%20Units%2FPawn%2FPawn_Idle%20Axe.pngR2i7419R3R4R5R502R7tgoR0y58:editor-human%2FBlack%20Units%2FPawn%2FPawn_Idle%20Gold.pngR2i8581R3R4R5R503R7tgoR0y60:editor-human%2FBlack%20Units%2FPawn%2FPawn_Idle%20Hammer.pngR2i7860R3R4R5R504R7tgoR0y59:editor-human%2FBlack%20Units%2FPawn%2FPawn_Idle%20Knife.pngR2i7352R3R4R5R505R7tgoR0y58:editor-human%2FBlack%20Units%2FPawn%2FPawn_Idle%20Meat.pngR2i9154R3R4R5R506R7tgoR0y61:editor-human%2FBlack%20Units%2FPawn%2FPawn_Idle%20Pickaxe.pngR2i7441R3R4R5R507R7tgoR0y58:editor-human%2FBlack%20Units%2FPawn%2FPawn_Idle%20Wood.pngR2i7009R3R4R5R508R7tgoR0y51:editor-human%2FBlack%20Units%2FPawn%2FPawn_Idle.pngR2i6629R3R4R5R509R7tgoR0y61:editor-human%2FBlack%20Units%2FPawn%2FPawn_Interact%20Axe.pngR2i8055R3R4R5R510R7tgoR0y64:editor-human%2FBlack%20Units%2FPawn%2FPawn_Interact%20Hammer.pngR2i4992R3R4R5R511R7tgoR0y63:editor-human%2FBlack%20Units%2FPawn%2FPawn_Interact%20Knife.pngR2i5741R3R4R5R512R7tgoR0y65:editor-human%2FBlack%20Units%2FPawn%2FPawn_Interact%20Pickaxe.pngR2i8572R3R4R5R513R7tgoR0y56:editor-human%2FBlack%20Units%2FPawn%2FPawn_Run%20Axe.pngR2i7153R3R4R5R514R7tgoR0y57:editor-human%2FBlack%20Units%2FPawn%2FPawn_Run%20Gold.pngR2i7699R3R4R5R515R7tgoR0y59:editor-human%2FBlack%20Units%2FPawn%2FPawn_Run%20Hammer.pngR2i7596R3R4R5R516R7tgoR0y58:editor-human%2FBlack%20Units%2FPawn%2FPawn_Run%20Knife.pngR2i6768R3R4R5R517R7tgoR0y57:editor-human%2FBlack%20Units%2FPawn%2FPawn_Run%20Meat.pngR2i8907R3R4R5R518R7tgoR0y60:editor-human%2FBlack%20Units%2FPawn%2FPawn_Run%20Pickaxe.pngR2i6905R3R4R5R519R7tgoR0y57:editor-human%2FBlack%20Units%2FPawn%2FPawn_Run%20Wood.pngR2i8053R3R4R5R520R7tgoR0y50:editor-human%2FBlack%20Units%2FPawn%2FPawn_Run.pngR2i6055R3R4R5R521R7tgoR0y60:editor-human%2FBlack%20Units%2FWarrior%2FWarrior_Attack1.pngR2i8176R3R4R5R522R7tgoR0y60:editor-human%2FBlack%20Units%2FWarrior%2FWarrior_Attack2.pngR2i9015R3R4R5R523R7tgoR0y58:editor-human%2FBlack%20Units%2FWarrior%2FWarrior_Guard.pngR2i7359R3R4R5R524R7tgoR0y57:editor-human%2FBlack%20Units%2FWarrior%2FWarrior_Idle.pngR2i9593R3R4R5R525R7tgoR0y56:editor-human%2FBlack%20Units%2FWarrior%2FWarrior_Run.pngR2i9778R3R4R5R526R7tgoR0y38:editor-buildings%2FBlack%2FArchery.pngR2i10170R3R4R5R527R7tgoR0y39:editor-buildings%2FBlack%2FBarracks.pngR2i9915R3R4R5R528R7tgoR0y37:editor-buildings%2FBlack%2FCastle.pngR2i17094R3R4R5R529R7tgoR0y37:editor-buildings%2FBlack%2FHouse1.pngR2i5282R3R4R5R530R7tgoR0y37:editor-buildings%2FBlack%2FHouse2.pngR2i5958R3R4R5R531R7tgoR0y37:editor-buildings%2FBlack%2FHouse3.pngR2i4418R3R4R5R532R7tgoR0y40:editor-buildings%2FBlack%2FMonastery.pngR2i11279R3R4R5R533R7tgoR0y36:editor-buildings%2FBlack%2FTower.pngR2i6496R3R4R5R534R7tgoR0y48:editor-lancer-Blue%2FLancer_DownRight_Attack.pngR2i6729R3R4R5R535R7tgoR0y49:editor-lancer-Blue%2FLancer_DownRight_Defence.pngR2i8661R3R4R5R536R7tgoR0y43:editor-lancer-Blue%2FLancer_Down_Attack.pngR2i6091R3R4R5R537R7tgoR0y44:editor-lancer-Blue%2FLancer_Down_Defence.pngR2i7309R3R4R5R538R7tgoR0y36:editor-lancer-Blue%2FLancer_Idle.pngR2i13286R3R4R5R539R7tgoR0y44:editor-lancer-Blue%2FLancer_Right_Attack.pngR2i4798R3R4R5R540R7tgoR0y45:editor-lancer-Blue%2FLancer_Right_Defence.pngR2i7399R3R4R5R541R7tgoR0y35:editor-lancer-Blue%2FLancer_Run.pngR2i11232R3R4R5R542R7tgoR0y46:editor-lancer-Blue%2FLancer_UpRight_Attack.pngR2i5941R3R4R5R543R7tgoR0y47:editor-lancer-Blue%2FLancer_UpRight_Defence.pngR2i7940R3R4R5R544R7tgoR0y41:editor-lancer-Blue%2FLancer_Up_Attack.pngR2i5219R3R4R5R545R7tgoR0y42:editor-lancer-Blue%2FLancer_Up_Defence.pngR2i7004R3R4R5R546R7tgoR0y47:editor-lancer-Red%2FLancer_DownRight_Attack.pngR2i6729R3R4R5R547R7tgoR0y48:editor-lancer-Red%2FLancer_DownRight_Defence.pngR2i8720R3R4R5R548R7tgoR0y42:editor-lancer-Red%2FLancer_Down_Attack.pngR2i6124R3R4R5R549R7tgoR0y43:editor-lancer-Red%2FLancer_Down_Defence.pngR2i7287R3R4R5R550R7tgoR0y35:editor-lancer-Red%2FLancer_Idle.pngR2i13271R3R4R5R551R7tgoR0y43:editor-lancer-Red%2FLancer_Right_Attack.pngR2i4759R3R4R5R552R7tgoR0y44:editor-lancer-Red%2FLancer_Right_Defence.pngR2i7348R3R4R5R553R7tgoR0y34:editor-lancer-Red%2FLancer_Run.pngR2i11187R3R4R5R554R7tgoR0y45:editor-lancer-Red%2FLancer_UpRight_Attack.pngR2i5916R3R4R5R555R7tgoR0y46:editor-lancer-Red%2FLancer_UpRight_Defence.pngR2i7931R3R4R5R556R7tgoR0y40:editor-lancer-Red%2FLancer_Up_Attack.pngR2i5185R3R4R5R557R7tgoR0y41:editor-lancer-Red%2FLancer_Up_Defence.pngR2i6997R3R4R5R558R7tgoR0y101:res%2FTiny%20Swords%20%28Enemy%20Pack%29%2FEnemy%20Pack%2FExtra%2FGnome%20Buildings%2FGnome%20Hut.pngR2i4866R3R4R5y23:editor-extra-building-0R7tgoR0y103:res%2FTiny%20Swords%20%28Enemy%20Pack%29%2FEnemy%20Pack%2FExtra%2FGnome%20Buildings%2FGnome%20Tower.pngR2i6613R3R4R5y23:editor-extra-building-1R7tgoR0y86:res%2FTiny%20Swords%20%28Enemy%20Pack%29%2FEnemy%20Pack%2FExtra%2FCave%2FCave_Idle.pngR2i16336R3R4R5y23:editor-extra-building-2R7tgoR0y108:res%2FTiny%20Swords%20%28Enemy%20Pack%29%2FEnemy%20Pack%2FExtra%2FPirate%20Tower%2FPirate%20Tower_Ground.pngR2i5178R3R4R5y23:editor-extra-building-3R7tgoR0y107:res%2FTiny%20Swords%20%28Enemy%20Pack%29%2FEnemy%20Pack%2FExtra%2FPirate%20Tower%2FPirate%20Tower_Water.pngR2i13160R3R4R5y23:editor-extra-building-4R7tgoR0y91:res%2FTiny%20Swords%20%28Enemy%20Pack%29%2FEnemy%20Pack%2FExtra%2FCannon%2FCannon_Right.pngR2i1064R3R4R5y23:editor-extra-building-5R7tgoR0y114:res%2FTiny%20Swords%20%28Enemy%20Pack%29%2FEnemy%20Pack%2FExtra%2FWooden%20Fence%2FWooden%20Fence_64x64%20tile.pngR2i6424R3R4R5y12:editor-fenceR7tgh\",\"rootPath\":null,\"version\":2,\"libraryArgs\":[],\"libraryType\":null}";
+	var data = "{\"name\":null,\"assets\":\"aoy4:pathy102:res%2FTiny%20Swords%20%28Free%20Pack%29%2FUI%20Elements%2FUI%20Elements%2FWood%20Table%2FWoodTable.pngy4:sizei12144y4:typey5:IMAGEy2:idy7:ui-woody7:preloadtgoR0y99:res%2FTiny%20Swords%20%28Free%20Pack%29%2FUI%20Elements%2FUI%20Elements%2FPapers%2FRegularPaper.pngR2i2659R3R4R5y8:ui-paperR7tgoR0y109:res%2FTiny%20Swords%20%28Free%20Pack%29%2FUI%20Elements%2FUI%20Elements%2FButtons%2FBigBlueButton_Regular.pngR2i2503R3R4R5y9:ui-buttonR7tgoR0y109:res%2FTiny%20Swords%20%28Free%20Pack%29%2FUI%20Elements%2FUI%20Elements%2FButtons%2FBigBlueButton_Pressed.pngR2i2323R3R4R5y17:ui-button-pressedR7tgoR0y98:res%2FTiny%20Swords%20%28Free%20Pack%29%2FUI%20Elements%2FUI%20Elements%2FRibbons%2FBigRibbons.pngR2i34018R3R4R5y10:ui-ribbonsR7tgoR0y93:res%2FTiny%20Swords%20%28Free%20Pack%29%2FUI%20Elements%2FUI%20Elements%2FSwords%2FSwords.pngR2i20595R3R4R5y9:ui-swordsR7tgoR0y93:res%2FTiny%20Swords%20%28Free%20Pack%29%2FUI%20Elements%2FUI%20Elements%2FIcons%2FIcon_03.pngR2i1387R3R4R5y7:ui-goldR7tgoR0y93:res%2FTiny%20Swords%20%28Free%20Pack%29%2FUI%20Elements%2FUI%20Elements%2FIcons%2FIcon_02.pngR2i1441R3R4R5y12:ui-wood-iconR7tgoR0y93:res%2FTiny%20Swords%20%28Free%20Pack%29%2FUI%20Elements%2FUI%20Elements%2FIcons%2FIcon_04.pngR2i1487R3R4R5y7:ui-foodR7tgoR0y106:res%2FTiny%20Swords%20%28Free%20Pack%29%2FUI%20Elements%2FUI%20Elements%2FHuman%20Avatars%2FAvatars_05.pngR2i4808R3R4R5y17:ui-avatar-peasantR7tgoR0y106:res%2FTiny%20Swords%20%28Free%20Pack%29%2FUI%20Elements%2FUI%20Elements%2FHuman%20Avatars%2FAvatars_01.pngR2i6103R3R4R5y19:ui-avatar-swordsmanR7tgoR0y106:res%2FTiny%20Swords%20%28Free%20Pack%29%2FUI%20Elements%2FUI%20Elements%2FHuman%20Avatars%2FAvatars_03.pngR2i5022R3R4R5y16:ui-avatar-archerR7tgoR0y80:res%2FTiny%20Swords%20%28Free%20Pack%29%2FTerrain%2FTileset%2FTilemap_color2.pngR2i40334R3R4R5y12:island-tilesR7tgoR0y88:res%2FTiny%20Swords%20%28Free%20Pack%29%2FTerrain%2FResources%2FWood%2FTrees%2FTree2.pngR2i17892R3R4R5y9:tree-pineR7tgoR0y88:res%2FTiny%20Swords%20%28Free%20Pack%29%2FTerrain%2FResources%2FWood%2FTrees%2FTree3.pngR2i14564R3R4R5y9:tree-goldR7tgoR0y88:res%2FTiny%20Swords%20%28Free%20Pack%29%2FTerrain%2FResources%2FWood%2FTrees%2FTree4.pngR2i10700R3R4R5y11:tree-orangeR7tgoR0y85:res%2FTiny%20Swords%20%28Free%20Pack%29%2FTerrain%2FDecorations%2FBushes%2FBushe1.pngR2i3967R3R4R5y4:bushR7tgoR0y113:res%2FTiny%20Swords%20%28Free%20Pack%29%2FTerrain%2FDecorations%2FRocks%20in%20the%20Water%2FWater%20Rocks_01.pngR2i3518R3R4R5y10:water-rockR7tgoR0y69:res%2FTiny%20Swords%20%28Free%20Pack%29%2FParticle%20FX%2FFire_01.pngR2i1112R3R4R5y19:building-fire-smallR7tgoR0y69:res%2FTiny%20Swords%20%28Free%20Pack%29%2FParticle%20FX%2FFire_02.pngR2i2229R3R4R5y20:building-fire-mediumR7tgoR0y69:res%2FTiny%20Swords%20%28Free%20Pack%29%2FParticle%20FX%2FFire_03.pngR2i3493R3R4R5y13:building-fireR7tgoR0y74:res%2FTiny%20Swords%20%28Free%20Pack%29%2FParticle%20FX%2FExplosion_01.pngR2i5213R3R4R5y18:building-explosionR7tgoR0y69:res%2FTiny%20Swords%20%28Free%20Pack%29%2FParticle%20FX%2FDust_02.pngR2i4814R3R4R5y13:building-dustR7tgoR0y76:res%2FTiny%20Swords%20%28Free%20Pack%29%2FParticle%20FX%2FWater%20Splash.pngR2i7852R3R4R5y15:building-splashR7tgoR0y34:monster-spider%2FSpider_Attack.pngR2i13968R3R4R5R54R7tgoR0y32:monster-spider%2FSpider_Idle.pngR2i10436R3R4R5R55R7tgoR0y31:monster-spider%2FSpider_Run.pngR2i7589R3R4R5R56R7tgoR0y34:monster-bee%2FBumblebee_Attack.pngR2i25932R3R4R5R57R7tgoR0y32:monster-bee%2FBumblebee_Idle.pngR2i13185R3R4R5R58R7tgoR0y32:monster-bee%2FBumblebee_Move.pngR2i7958R3R4R5R59R7tgoR0y35:monster-demon%2FImp_Attack_Loop.pngR2i9831R3R4R5R60R7tgoR0y28:monster-demon%2FImp_Idle.pngR2i11234R3R4R5R61R7tgoR0y28:monster-demon%2FImp_Move.pngR2i9579R3R4R5R62R7tgoR0y93:res%2FTiny%20Swords%20%28Enemy%20Pack%29%2FEnemy%20Pack%2FExtra%2FFish%20Hut%2FFish%20Hut.pngR2i19631R3R4R5y9:water-hutR7tgoR0y47:seahorse-boat%2FSeahorse%20Boat_Bomb%20Fish.pngR2i12572R3R4R5R65R7tgoR0y51:seahorse-boat%2FSeahorse%20Boat_Harpoon%20Shark.pngR2i14911R3R4R5R66R7tgoR0y40:seahorse-boat%2FSeahorse%20Boat_Idle.pngR2i9380R3R4R5R67R7tgoR0y50:seahorse-boat%2FSeahorse%20Boat_Paddle%20Shark.pngR2i14420R3R4R5R68R7tgoR0y42:monster-harpoon%2FHarpoon%20Shark_Idle.pngR2i7977R3R4R5R69R7tgoR0y41:monster-harpoon%2FHarpoon%20Shark_Run.pngR2i8022R3R4R5R70R7tgoR0y43:monster-harpoon%2FHarpoon%20Shark_Throw.pngR2i12720R3R4R5R71R7tgoR0y42:monster-paddle%2FPaddle%20Shark_Attack.pngR2i13214R3R4R5R72R7tgoR0y40:monster-paddle%2FPaddle%20Shark_Idle.pngR2i9050R3R4R5R73R7tgoR0y39:monster-paddle%2FPaddle%20Shark_Run.pngR2i9056R3R4R5R74R7tgoR0y40:monster-bomb-fish%2FBomb%20Fish_Idle.pngR2i7474R3R4R5R75R7tgoR0y39:monster-bomb-fish%2FBomb%20Fish_Run.pngR2i6675R3R4R5R76R7tgoR0y41:monster-bomb-fish%2FBomb%20Fish_Shoot.pngR2i11378R3R4R5R77R7tgoR0y97:res%2FTiny%20Swords%20%28Enemy%20Pack%29%2FEnemy%20Pack%2FExtra%2FGoblin%20Hut%2FGoblin%20Hut.pngR2i32252R3R4R5y11:monster-hutR7tgoR0y48:monster-spear%2FSpear%20Goblin_Attack%20Fast.pngR2i15338R3R4R5R80R7tgoR0y39:monster-spear%2FSpear%20Goblin_Idle.pngR2i11955R3R4R5R81R7tgoR0y38:monster-spear%2FSpear%20Goblin_Run.pngR2i8652R3R4R5R82R7tgoR0y41:monster-torch%2FTorch%20Goblin_Attack.pngR2i15276R3R4R5R83R7tgoR0y39:monster-torch%2FTorch%20Goblin_Idle.pngR2i10416R3R4R5R84R7tgoR0y38:monster-torch%2FTorch%20Goblin_Run.pngR2i9825R3R4R5R85R7tgoR0y29:enemy-buildings%2FArchery.pngR2i10052R3R4R5R86R7tgoR0y30:enemy-buildings%2FBarracks.pngR2i9876R3R4R5R87R7tgoR0y28:enemy-buildings%2FCastle.pngR2i16914R3R4R5R88R7tgoR0y28:enemy-buildings%2FHouse1.pngR2i5307R3R4R5R89R7tgoR0y28:enemy-buildings%2FHouse2.pngR2i5956R3R4R5R90R7tgoR0y28:enemy-buildings%2FHouse3.pngR2i4429R3R4R5R91R7tgoR0y31:enemy-buildings%2FMonastery.pngR2i11058R3R4R5R92R7tgoR0y27:enemy-buildings%2FTower.pngR2i6464R3R4R5R93R7tgoR0y32:enemy-pawn%2FPawn_Idle%20Axe.pngR2i7419R3R4R5R94R7tgoR0y33:enemy-pawn%2FPawn_Idle%20Gold.pngR2i8566R3R4R5R95R7tgoR0y35:enemy-pawn%2FPawn_Idle%20Hammer.pngR2i7861R3R4R5R96R7tgoR0y34:enemy-pawn%2FPawn_Idle%20Knife.pngR2i7367R3R4R5R97R7tgoR0y33:enemy-pawn%2FPawn_Idle%20Meat.pngR2i9176R3R4R5R98R7tgoR0y36:enemy-pawn%2FPawn_Idle%20Pickaxe.pngR2i7358R3R4R5R99R7tgoR0y33:enemy-pawn%2FPawn_Idle%20Wood.pngR2i7031R3R4R5R100R7tgoR0y26:enemy-pawn%2FPawn_Idle.pngR2i6641R3R4R5R101R7tgoR0y36:enemy-pawn%2FPawn_Interact%20Axe.pngR2i8055R3R4R5R102R7tgoR0y39:enemy-pawn%2FPawn_Interact%20Hammer.pngR2i4995R3R4R5R103R7tgoR0y38:enemy-pawn%2FPawn_Interact%20Knife.pngR2i5742R3R4R5R104R7tgoR0y40:enemy-pawn%2FPawn_Interact%20Pickaxe.pngR2i8501R3R4R5R105R7tgoR0y31:enemy-pawn%2FPawn_Run%20Axe.pngR2i7160R3R4R5R106R7tgoR0y32:enemy-pawn%2FPawn_Run%20Gold.pngR2i7697R3R4R5R107R7tgoR0y34:enemy-pawn%2FPawn_Run%20Hammer.pngR2i7574R3R4R5R108R7tgoR0y33:enemy-pawn%2FPawn_Run%20Knife.pngR2i6775R3R4R5R109R7tgoR0y32:enemy-pawn%2FPawn_Run%20Meat.pngR2i8907R3R4R5R110R7tgoR0y35:enemy-pawn%2FPawn_Run%20Pickaxe.pngR2i6866R3R4R5R111R7tgoR0y32:enemy-pawn%2FPawn_Run%20Wood.pngR2i8054R3R4R5R112R7tgoR0y25:enemy-pawn%2FPawn_Run.pngR2i6055R3R4R5R113R7tgoR0y21:enemy-monk%2FHeal.pngR2i11554R3R4R5R114R7tgoR0y28:enemy-monk%2FHeal_Effect.pngR2i9658R3R4R5R115R7tgoR0y21:enemy-monk%2FIdle.pngR2i6533R3R4R5R116R7tgoR0y20:enemy-monk%2FRun.pngR2i5616R3R4R5R117R7tgoR0y35:enemy-warrior%2FWarrior_Attack1.pngR2i8133R3R4R5R118R7tgoR0y35:enemy-warrior%2FWarrior_Attack2.pngR2i8933R3R4R5R119R7tgoR0y32:enemy-warrior%2FWarrior_Idle.pngR2i9832R3R4R5R120R7tgoR0y31:enemy-warrior%2FWarrior_Run.pngR2i9802R3R4R5R121R7tgoR0y30:enemy-archer%2FArcher_Idle.pngR2i5056R3R4R5R122R7tgoR0y29:enemy-archer%2FArcher_Run.pngR2i5349R3R4R5R123R7tgoR0y31:enemy-archer%2FArcher_Shoot.pngR2i11899R3R4R5R124R7tgoR0y24:enemy-archer%2FArrow.pngR2i416R3R4R5R125R7tgoR0y80:res%2FTiny%20Swords%20%28Free%20Pack%29%2FTerrain%2FTileset%2FTilemap_color1.pngR2i40222R3R4R5y5:tilesR7tgoR0y88:res%2FTiny%20Swords%20%28Free%20Pack%29%2FTerrain%2FResources%2FWood%2FTrees%2FTree1.pngR2i16015R3R4R5y4:treeR7tgoR0y83:res%2FTiny%20Swords%20%28Free%20Pack%29%2FTerrain%2FDecorations%2FRocks%2FRock1.pngR2i577R3R4R5y4:rockR7tgoR0y83:res%2FTiny%20Swords%20%28Free%20Pack%29%2FTerrain%2FDecorations%2FRocks%2FRock3.pngR2i606R3R4R5y11:rock-mediumR7tgoR0y83:res%2FTiny%20Swords%20%28Free%20Pack%29%2FTerrain%2FDecorations%2FRocks%2FRock4.pngR2i900R3R4R5y10:rock-largeR7tgoR0y107:res%2FTiny%20Swords%20%28Free%20Pack%29%2FTerrain%2FResources%2FGold%2FGold%20Stones%2FGold%20Stone%206.pngR2i2146R3R4R5y4:goldR7tgoR0y94:res%2FTiny%20Swords%20%28Free%20Pack%29%2FTerrain%2FResources%2FMeat%2FSheep%2FSheep_Grass.pngR2i4961R3R4R5y5:sheepR7tgoR0y92:res%2FTiny%20Swords%20%28Free%20Pack%29%2FTerrain%2FResources%2FWood%2FTrees%2FStump%201.pngR2i1233R3R4R5y5:stumpR7tgoR0y23:buildings%2FArchery.pngR2i10177R3R4R5R142R7tgoR0y24:buildings%2FBarracks.pngR2i9968R3R4R5R143R7tgoR0y22:buildings%2FCastle.pngR2i17136R3R4R5R144R7tgoR0y22:buildings%2FHouse1.pngR2i5312R3R4R5R145R7tgoR0y22:buildings%2FHouse2.pngR2i5938R3R4R5R146R7tgoR0y22:buildings%2FHouse3.pngR2i4390R3R4R5R147R7tgoR0y25:buildings%2FMonastery.pngR2i11326R3R4R5R148R7tgoR0y21:buildings%2FTower.pngR2i6535R3R4R5R149R7tgoR0y26:pawn%2FPawn_Idle%20Axe.pngR2i7441R3R4R5R150R7tgoR0y27:pawn%2FPawn_Idle%20Gold.pngR2i8571R3R4R5R151R7tgoR0y29:pawn%2FPawn_Idle%20Hammer.pngR2i7913R3R4R5R152R7tgoR0y28:pawn%2FPawn_Idle%20Knife.pngR2i7365R3R4R5R153R7tgoR0y27:pawn%2FPawn_Idle%20Meat.pngR2i9187R3R4R5R154R7tgoR0y30:pawn%2FPawn_Idle%20Pickaxe.pngR2i7396R3R4R5R155R7tgoR0y27:pawn%2FPawn_Idle%20Wood.pngR2i7043R3R4R5R156R7tgoR0y20:pawn%2FPawn_Idle.pngR2i6656R3R4R5R157R7tgoR0y30:pawn%2FPawn_Interact%20Axe.pngR2i8057R3R4R5R158R7tgoR0y33:pawn%2FPawn_Interact%20Hammer.pngR2i4997R3R4R5R159R7tgoR0y32:pawn%2FPawn_Interact%20Knife.pngR2i5742R3R4R5R160R7tgoR0y34:pawn%2FPawn_Interact%20Pickaxe.pngR2i8508R3R4R5R161R7tgoR0y25:pawn%2FPawn_Run%20Axe.pngR2i7175R3R4R5R162R7tgoR0y26:pawn%2FPawn_Run%20Gold.pngR2i7702R3R4R5R163R7tgoR0y28:pawn%2FPawn_Run%20Hammer.pngR2i7610R3R4R5R164R7tgoR0y27:pawn%2FPawn_Run%20Knife.pngR2i6780R3R4R5R165R7tgoR0y26:pawn%2FPawn_Run%20Meat.pngR2i8918R3R4R5R166R7tgoR0y29:pawn%2FPawn_Run%20Pickaxe.pngR2i6879R3R4R5R167R7tgoR0y26:pawn%2FPawn_Run%20Wood.pngR2i8064R3R4R5R168R7tgoR0y19:pawn%2FPawn_Run.pngR2i6078R3R4R5R169R7tgoR0y29:warrior%2FWarrior_Attack1.pngR2i8169R3R4R5R170R7tgoR0y29:warrior%2FWarrior_Attack2.pngR2i8984R3R4R5R171R7tgoR0y26:warrior%2FWarrior_Idle.pngR2i9948R3R4R5R172R7tgoR0y25:warrior%2FWarrior_Run.pngR2i9809R3R4R5R173R7tgoR0y15:monk%2FHeal.pngR2i11616R3R4R5R174R7tgoR0y22:monk%2FHeal_Effect.pngR2i9658R3R4R5R175R7tgoR0y15:monk%2FIdle.pngR2i6531R3R4R5R176R7tgoR0y14:monk%2FRun.pngR2i5590R3R4R5R177R7tgoR0y24:archer%2FArcher_Idle.pngR2i5024R3R4R5R178R7tgoR0y23:archer%2FArcher_Run.pngR2i5327R3R4R5R179R7tgoR0y25:archer%2FArcher_Shoot.pngR2i11874R3R4R5R180R7tgoR0y18:archer%2FArrow.pngR2i416R3R4R5R181R7tgoR0y88:res%2FTiny%20Swords%20%28Free%20Pack%29%2FTerrain%2FDecorations%2FClouds%2FClouds_01.pngR2i4611R3R4R5y7:cloud-1R7tgoR0y88:res%2FTiny%20Swords%20%28Free%20Pack%29%2FTerrain%2FDecorations%2FClouds%2FClouds_02.pngR2i3086R3R4R5y7:cloud-2R7tgoR0y88:res%2FTiny%20Swords%20%28Free%20Pack%29%2FTerrain%2FDecorations%2FClouds%2FClouds_03.pngR2i2195R3R4R5y7:cloud-3R7tgoR0y88:res%2FTiny%20Swords%20%28Free%20Pack%29%2FTerrain%2FDecorations%2FClouds%2FClouds_04.pngR2i1510R3R4R5y7:cloud-4R7tgoR0y88:res%2FTiny%20Swords%20%28Free%20Pack%29%2FTerrain%2FDecorations%2FClouds%2FClouds_05.pngR2i4046R3R4R5y7:cloud-5R7tgoR0y88:res%2FTiny%20Swords%20%28Free%20Pack%29%2FTerrain%2FDecorations%2FClouds%2FClouds_06.pngR2i2973R3R4R5y7:cloud-6R7tgoR0y88:res%2FTiny%20Swords%20%28Free%20Pack%29%2FTerrain%2FDecorations%2FClouds%2FClouds_07.pngR2i2207R3R4R5y7:cloud-7R7tgoR0y88:res%2FTiny%20Swords%20%28Free%20Pack%29%2FTerrain%2FDecorations%2FClouds%2FClouds_08.pngR2i1479R3R4R5y7:cloud-8R7tgoR0R38R2i3967R3R4R5y14:scenery-bush-1R7tgoR0y85:res%2FTiny%20Swords%20%28Free%20Pack%29%2FTerrain%2FDecorations%2FBushes%2FBushe2.pngR2i2815R3R4R5y14:scenery-bush-2R7tgoR0y85:res%2FTiny%20Swords%20%28Free%20Pack%29%2FTerrain%2FDecorations%2FBushes%2FBushe3.pngR2i7879R3R4R5y14:scenery-bush-3R7tgoR0y85:res%2FTiny%20Swords%20%28Free%20Pack%29%2FTerrain%2FDecorations%2FBushes%2FBushe4.pngR2i3860R3R4R5y14:scenery-bush-4R7tgoR0R130R2i577R3R4R5y14:scenery-rock-1R7tgoR0y83:res%2FTiny%20Swords%20%28Free%20Pack%29%2FTerrain%2FDecorations%2FRocks%2FRock2.pngR2i805R3R4R5y14:scenery-rock-2R7tgoR0R132R2i606R3R4R5y14:scenery-rock-3R7tgoR0R134R2i900R3R4R5y14:scenery-rock-4R7tgoR0R40R2i3518R3R4R5y15:scenery-water-1R7tgoR0y113:res%2FTiny%20Swords%20%28Free%20Pack%29%2FTerrain%2FDecorations%2FRocks%20in%20the%20Water%2FWater%20Rocks_02.pngR2i4906R3R4R5y15:scenery-water-2R7tgoR0y113:res%2FTiny%20Swords%20%28Free%20Pack%29%2FTerrain%2FDecorations%2FRocks%20in%20the%20Water%2FWater%20Rocks_03.pngR2i3817R3R4R5y15:scenery-water-3R7tgoR0y113:res%2FTiny%20Swords%20%28Free%20Pack%29%2FTerrain%2FDecorations%2FRocks%20in%20the%20Water%2FWater%20Rocks_04.pngR2i5881R3R4R5y15:scenery-water-4R7tgoR0y99:res%2FTiny%20Swords%20%28Free%20Pack%29%2FTerrain%2FDecorations%2FRubber%20Duck%2FRubber%20duck.pngR2i1090R3R4R5y6:duck-1R7tgoR0y62:res%2FGenerated%2FCastleWalls%2Fcastle-wall-perspective-v2.pngR2i1760706R3R4R5y12:castle-wallsR7tgoR0y93:res%2FTiny%20Swords%20%28Free%20Pack%29%2FTerrain%2FResources%2FMeat%2FSheep%2FSheep_Move.pngR2i3131R3R4R5y10:sheep-walkR7tgoR0y93:res%2FTiny%20Swords%20%28Free%20Pack%29%2FTerrain%2FResources%2FMeat%2FSheep%2FSheep_Idle.pngR2i2813R3R4R5y10:sheep-idleR7tgoR0y69:res%2FTiny%20Swords%20%28Free%20Pack%29%2FParticle%20FX%2FDust_01.pngR2i2244R3R4R5y15:unit-death-dustR7tgoR0y98:res%2FTiny%20Swords%20%28Free%20Pack%29%2FUI%20Elements%2FUI%20Elements%2FBars%2FSmallBar_Base.pngR2i639R3R4R5y15:health-bar-baseR7tgoR0y98:res%2FTiny%20Swords%20%28Free%20Pack%29%2FUI%20Elements%2FUI%20Elements%2FBars%2FSmallBar_Fill.pngR2i127R3R4R5y15:health-bar-fillR7tgoR0y86:res%2FTiny%20Swords%20%28Enemy%20Pack%29%2FEnemy%20Pack%2FExtra%2FBoat%2FBoat_Idle.pngR2i11622R3R4R5y11:player-boatR7tgoR0y78:res%2FTiny%20Swords%20%28Enemy%20Pack%29%2FEnemy%20Pack%2FBear%2FBear_Idle.pngR2i11519R3R4R5y21:editor-monster-0-idleR7tgoR0y77:res%2FTiny%20Swords%20%28Enemy%20Pack%29%2FEnemy%20Pack%2FBear%2FBear_Run.pngR2i12317R3R4R5y20:editor-monster-0-runR7tgoR0y80:res%2FTiny%20Swords%20%28Enemy%20Pack%29%2FEnemy%20Pack%2FBear%2FBear_Attack.pngR2i24517R3R4R5y23:editor-monster-0-attackR7tgoR0y92:res%2FTiny%20Swords%20%28Enemy%20Pack%29%2FEnemy%20Pack%2FBomb%20Fish%2FBomb%20Fish_Idle.pngR2i7474R3R4R5y21:editor-monster-1-idleR7tgoR0y91:res%2FTiny%20Swords%20%28Enemy%20Pack%29%2FEnemy%20Pack%2FBomb%20Fish%2FBomb%20Fish_Run.pngR2i6675R3R4R5y20:editor-monster-1-runR7tgoR0y93:res%2FTiny%20Swords%20%28Enemy%20Pack%29%2FEnemy%20Pack%2FBomb%20Fish%2FBomb%20Fish_Shoot.pngR2i11378R3R4R5y23:editor-monster-1-attackR7tgoR0y88:res%2FTiny%20Swords%20%28Enemy%20Pack%29%2FEnemy%20Pack%2FBumblebee%2FBumblebee_Idle.pngR2i13185R3R4R5y21:editor-monster-2-idleR7tgoR0y88:res%2FTiny%20Swords%20%28Enemy%20Pack%29%2FEnemy%20Pack%2FBumblebee%2FBumblebee_Move.pngR2i7958R3R4R5y20:editor-monster-2-runR7tgoR0y90:res%2FTiny%20Swords%20%28Enemy%20Pack%29%2FEnemy%20Pack%2FBumblebee%2FBumblebee_Attack.pngR2i25932R3R4R5y23:editor-monster-2-attackR7tgoR0y92:res%2FTiny%20Swords%20%28Enemy%20Pack%29%2FEnemy%20Pack%2FGiant%20Bat%2FGiant%20Bat_Idle.pngR2i12762R3R4R5y21:editor-monster-3-idleR7tgoR0y92:res%2FTiny%20Swords%20%28Enemy%20Pack%29%2FEnemy%20Pack%2FGiant%20Bat%2FGiant%20Bat_Move.pngR2i8136R3R4R5y20:editor-monster-3-runR7tgoR0y94:res%2FTiny%20Swords%20%28Enemy%20Pack%29%2FEnemy%20Pack%2FGiant%20Bat%2FGiant%20Bat_Attack.pngR2i17102R3R4R5y23:editor-monster-3-attackR7tgoR0y80:res%2FTiny%20Swords%20%28Enemy%20Pack%29%2FEnemy%20Pack%2FGnoll%2FGnoll_Idle.pngR2i8284R3R4R5y21:editor-monster-4-idleR7tgoR0y80:res%2FTiny%20Swords%20%28Enemy%20Pack%29%2FEnemy%20Pack%2FGnoll%2FGnoll_Walk.pngR2i11350R3R4R5y20:editor-monster-4-runR7tgoR0y81:res%2FTiny%20Swords%20%28Enemy%20Pack%29%2FEnemy%20Pack%2FGnoll%2FGnoll_Throw.pngR2i15109R3R4R5y23:editor-monster-4-attackR7tgoR0y80:res%2FTiny%20Swords%20%28Enemy%20Pack%29%2FEnemy%20Pack%2FGnome%2FGnome_Idle.pngR2i7239R3R4R5y21:editor-monster-5-idleR7tgoR0y79:res%2FTiny%20Swords%20%28Enemy%20Pack%29%2FEnemy%20Pack%2FGnome%2FGnome_Run.pngR2i5522R3R4R5y20:editor-monster-5-runR7tgoR0y82:res%2FTiny%20Swords%20%28Enemy%20Pack%29%2FEnemy%20Pack%2FGnome%2FGnome_Attack.pngR2i9486R3R4R5y23:editor-monster-5-attackR7tgoR0y100:res%2FTiny%20Swords%20%28Enemy%20Pack%29%2FEnemy%20Pack%2FHarpoon%20Shark%2FHarpoon%20Shark_Idle.pngR2i7977R3R4R5y21:editor-monster-6-idleR7tgoR0y99:res%2FTiny%20Swords%20%28Enemy%20Pack%29%2FEnemy%20Pack%2FHarpoon%20Shark%2FHarpoon%20Shark_Run.pngR2i8022R3R4R5y20:editor-monster-6-runR7tgoR0y101:res%2FTiny%20Swords%20%28Enemy%20Pack%29%2FEnemy%20Pack%2FHarpoon%20Shark%2FHarpoon%20Shark_Throw.pngR2i12720R3R4R5y23:editor-monster-6-attackR7tgoR0y94:res%2FTiny%20Swords%20%28Enemy%20Pack%29%2FEnemy%20Pack%2FHex%20Shaman%2FHex%20Shaman_Idle.pngR2i10450R3R4R5y21:editor-monster-7-idleR7tgoR0y93:res%2FTiny%20Swords%20%28Enemy%20Pack%29%2FEnemy%20Pack%2FHex%20Shaman%2FHex%20Shaman_Run.pngR2i9361R3R4R5y20:editor-monster-7-runR7tgoR0y96:res%2FTiny%20Swords%20%28Enemy%20Pack%29%2FEnemy%20Pack%2FHex%20Shaman%2FHex%20Shaman_Attack.pngR2i17898R3R4R5y23:editor-monster-7-attackR7tgoR0y76:res%2FTiny%20Swords%20%28Enemy%20Pack%29%2FEnemy%20Pack%2FImp%2FImp_Idle.pngR2i11234R3R4R5y21:editor-monster-8-idleR7tgoR0y76:res%2FTiny%20Swords%20%28Enemy%20Pack%29%2FEnemy%20Pack%2FImp%2FImp_Move.pngR2i9579R3R4R5y20:editor-monster-8-runR7tgoR0y83:res%2FTiny%20Swords%20%28Enemy%20Pack%29%2FEnemy%20Pack%2FImp%2FImp_Attack_Loop.pngR2i9831R3R4R5y23:editor-monster-8-attackR7tgoR0y82:res%2FTiny%20Swords%20%28Enemy%20Pack%29%2FEnemy%20Pack%2FLizard%2FLizard_Idle.pngR2i9390R3R4R5y21:editor-monster-9-idleR7tgoR0y81:res%2FTiny%20Swords%20%28Enemy%20Pack%29%2FEnemy%20Pack%2FLizard%2FLizard_Run.pngR2i9092R3R4R5y20:editor-monster-9-runR7tgoR0y84:res%2FTiny%20Swords%20%28Enemy%20Pack%29%2FEnemy%20Pack%2FLizard%2FLizard_Attack.pngR2i21318R3R4R5y23:editor-monster-9-attackR7tgoR0y86:res%2FTiny%20Swords%20%28Enemy%20Pack%29%2FEnemy%20Pack%2FMinotaur%2FMinotaur_Idle.pngR2i29243R3R4R5y22:editor-monster-10-idleR7tgoR0y86:res%2FTiny%20Swords%20%28Enemy%20Pack%29%2FEnemy%20Pack%2FMinotaur%2FMinotaur_Walk.pngR2i23671R3R4R5y21:editor-monster-10-runR7tgoR0y88:res%2FTiny%20Swords%20%28Enemy%20Pack%29%2FEnemy%20Pack%2FMinotaur%2FMinotaur_Attack.pngR2i45617R3R4R5y24:editor-monster-10-attackR7tgoR0y98:res%2FTiny%20Swords%20%28Enemy%20Pack%29%2FEnemy%20Pack%2FPaddle%20Shark%2FPaddle%20Shark_Idle.pngR2i9050R3R4R5y22:editor-monster-11-idleR7tgoR0y97:res%2FTiny%20Swords%20%28Enemy%20Pack%29%2FEnemy%20Pack%2FPaddle%20Shark%2FPaddle%20Shark_Run.pngR2i9056R3R4R5y21:editor-monster-11-runR7tgoR0y100:res%2FTiny%20Swords%20%28Enemy%20Pack%29%2FEnemy%20Pack%2FPaddle%20Shark%2FPaddle%20Shark_Attack.pngR2i13214R3R4R5y24:editor-monster-11-attackR7tgoR0y80:res%2FTiny%20Swords%20%28Enemy%20Pack%29%2FEnemy%20Pack%2FPanda%2FPanda_Idle.pngR2i13434R3R4R5y22:editor-monster-12-idleR7tgoR0y79:res%2FTiny%20Swords%20%28Enemy%20Pack%29%2FEnemy%20Pack%2FPanda%2FPanda_Run.pngR2i10412R3R4R5y21:editor-monster-12-runR7tgoR0y82:res%2FTiny%20Swords%20%28Enemy%20Pack%29%2FEnemy%20Pack%2FPanda%2FPanda_Attack.pngR2i33603R3R4R5y24:editor-monster-12-attackR7tgoR0y80:res%2FTiny%20Swords%20%28Enemy%20Pack%29%2FEnemy%20Pack%2FSkull%2FSkull_Idle.pngR2i7867R3R4R5y22:editor-monster-13-idleR7tgoR0y79:res%2FTiny%20Swords%20%28Enemy%20Pack%29%2FEnemy%20Pack%2FSkull%2FSkull_Run.pngR2i7599R3R4R5y21:editor-monster-13-runR7tgoR0y82:res%2FTiny%20Swords%20%28Enemy%20Pack%29%2FEnemy%20Pack%2FSkull%2FSkull_Attack.pngR2i9556R3R4R5y24:editor-monster-13-attackR7tgoR0y104:res%2FTiny%20Swords%20%28Enemy%20Pack%29%2FEnemy%20Pack%2FSlingshot%20Gnome%2FSlingshot%20Gnome_Idle.pngR2i8779R3R4R5y22:editor-monster-14-idleR7tgoR0y103:res%2FTiny%20Swords%20%28Enemy%20Pack%29%2FEnemy%20Pack%2FSlingshot%20Gnome%2FSlingshot%20Gnome_Run.pngR2i6662R3R4R5y21:editor-monster-14-runR7tgoR0y105:res%2FTiny%20Swords%20%28Enemy%20Pack%29%2FEnemy%20Pack%2FSlingshot%20Gnome%2FSlingshot%20Gnome_Shoot.pngR2i10695R3R4R5y24:editor-monster-14-attackR7tgoR0y80:res%2FTiny%20Swords%20%28Enemy%20Pack%29%2FEnemy%20Pack%2FSnake%2FSnake_Idle.pngR2i12613R3R4R5y22:editor-monster-15-idleR7tgoR0y79:res%2FTiny%20Swords%20%28Enemy%20Pack%29%2FEnemy%20Pack%2FSnake%2FSnake_Run.pngR2i12677R3R4R5y21:editor-monster-15-runR7tgoR0y82:res%2FTiny%20Swords%20%28Enemy%20Pack%29%2FEnemy%20Pack%2FSnake%2FSnake_Attack.pngR2i14064R3R4R5y24:editor-monster-15-attackR7tgoR0y98:res%2FTiny%20Swords%20%28Enemy%20Pack%29%2FEnemy%20Pack%2FSpear%20Goblin%2FSpear%20Goblin_Idle.pngR2i11955R3R4R5y22:editor-monster-16-idleR7tgoR0y97:res%2FTiny%20Swords%20%28Enemy%20Pack%29%2FEnemy%20Pack%2FSpear%20Goblin%2FSpear%20Goblin_Run.pngR2i8652R3R4R5y21:editor-monster-16-runR7tgoR0y107:res%2FTiny%20Swords%20%28Enemy%20Pack%29%2FEnemy%20Pack%2FSpear%20Goblin%2FSpear%20Goblin_Attack%20Fast.pngR2i15338R3R4R5y24:editor-monster-16-attackR7tgoR0y82:res%2FTiny%20Swords%20%28Enemy%20Pack%29%2FEnemy%20Pack%2FSpider%2FSpider_Idle.pngR2i10436R3R4R5y22:editor-monster-17-idleR7tgoR0y81:res%2FTiny%20Swords%20%28Enemy%20Pack%29%2FEnemy%20Pack%2FSpider%2FSpider_Run.pngR2i7589R3R4R5y21:editor-monster-17-runR7tgoR0y84:res%2FTiny%20Swords%20%28Enemy%20Pack%29%2FEnemy%20Pack%2FSpider%2FSpider_Attack.pngR2i13968R3R4R5y24:editor-monster-17-attackR7tgoR0y80:res%2FTiny%20Swords%20%28Enemy%20Pack%29%2FEnemy%20Pack%2FThief%2FThief_Idle.pngR2i6921R3R4R5y22:editor-monster-18-idleR7tgoR0y79:res%2FTiny%20Swords%20%28Enemy%20Pack%29%2FEnemy%20Pack%2FThief%2FThief_Run.pngR2i7444R3R4R5y21:editor-monster-18-runR7tgoR0y82:res%2FTiny%20Swords%20%28Enemy%20Pack%29%2FEnemy%20Pack%2FThief%2FThief_Attack.pngR2i9880R3R4R5y24:editor-monster-18-attackR7tgoR0y98:res%2FTiny%20Swords%20%28Enemy%20Pack%29%2FEnemy%20Pack%2FTorch%20Goblin%2FTorch%20Goblin_Idle.pngR2i10416R3R4R5y22:editor-monster-19-idleR7tgoR0y97:res%2FTiny%20Swords%20%28Enemy%20Pack%29%2FEnemy%20Pack%2FTorch%20Goblin%2FTorch%20Goblin_Run.pngR2i9825R3R4R5y21:editor-monster-19-runR7tgoR0y100:res%2FTiny%20Swords%20%28Enemy%20Pack%29%2FEnemy%20Pack%2FTorch%20Goblin%2FTorch%20Goblin_Attack.pngR2i15276R3R4R5y24:editor-monster-19-attackR7tgoR0y80:res%2FTiny%20Swords%20%28Enemy%20Pack%29%2FEnemy%20Pack%2FTroll%2FTroll_Idle.pngR2i38268R3R4R5y22:editor-monster-20-idleR7tgoR0y80:res%2FTiny%20Swords%20%28Enemy%20Pack%29%2FEnemy%20Pack%2FTroll%2FTroll_Walk.pngR2i50868R3R4R5y21:editor-monster-20-runR7tgoR0y82:res%2FTiny%20Swords%20%28Enemy%20Pack%29%2FEnemy%20Pack%2FTroll%2FTroll_Attack.pngR2i43240R3R4R5y24:editor-monster-20-attackR7tgoR0y82:res%2FTiny%20Swords%20%28Enemy%20Pack%29%2FEnemy%20Pack%2FTurtle%2FTurtle_Idle.pngR2i17616R3R4R5y22:editor-monster-21-idleR7tgoR0y82:res%2FTiny%20Swords%20%28Enemy%20Pack%29%2FEnemy%20Pack%2FTurtle%2FTurtle_Walk.pngR2i17070R3R4R5y21:editor-monster-21-runR7tgoR0y84:res%2FTiny%20Swords%20%28Enemy%20Pack%29%2FEnemy%20Pack%2FTurtle%2FTurtle_Attack.pngR2i22280R3R4R5y24:editor-monster-21-attackR7tgoR0y84:res%2FTiny%20Swords%20%28Enemy%20Pack%29%2FEnemy%20Pack%2FExtra%2FPig%2FPig_Idle.pngR2i6151R3R4R5y22:editor-monster-22-idleR7tgoR0y83:res%2FTiny%20Swords%20%28Enemy%20Pack%29%2FEnemy%20Pack%2FExtra%2FPig%2FPig_Run.pngR2i4470R3R4R5y21:editor-monster-22-runR7tgoR0R365R2i6151R3R4R5y24:editor-monster-22-attackR7tgoR0y117:res%2FTiny%20Swords%20%28Enemy%20Pack%29%2FEnemy%20Pack%2FExtra%2FPig%20Rider%20Spear%20Goblin%2FPig%20Rider_Idle.pngR2i14685R3R4R5y22:editor-monster-23-idleR7tgoR0y116:res%2FTiny%20Swords%20%28Enemy%20Pack%29%2FEnemy%20Pack%2FExtra%2FPig%20Rider%20Spear%20Goblin%2FPig%20Rider_Run.pngR2i11136R3R4R5y21:editor-monster-23-runR7tgoR0y119:res%2FTiny%20Swords%20%28Enemy%20Pack%29%2FEnemy%20Pack%2FExtra%2FPig%20Rider%20Spear%20Goblin%2FPig%20Rider_Attack.pngR2i19382R3R4R5y24:editor-monster-23-attackR7tgoR0y56:editor-human%2FYellow%20Units%2FArcher%2FArcher_Idle.pngR2i5044R3R4R5R376R7tgoR0y55:editor-human%2FYellow%20Units%2FArcher%2FArcher_Run.pngR2i5357R3R4R5R377R7tgoR0y57:editor-human%2FYellow%20Units%2FArcher%2FArcher_Shoot.pngR2i11996R3R4R5R378R7tgoR0y50:editor-human%2FYellow%20Units%2FArcher%2FArrow.pngR2i416R3R4R5R379R7tgoR0y68:editor-human%2FYellow%20Units%2FLancer%2FLancer_DownRight_Attack.pngR2i6800R3R4R5R380R7tgoR0y69:editor-human%2FYellow%20Units%2FLancer%2FLancer_DownRight_Defence.pngR2i8672R3R4R5R381R7tgoR0y63:editor-human%2FYellow%20Units%2FLancer%2FLancer_Down_Attack.pngR2i6116R3R4R5R382R7tgoR0y64:editor-human%2FYellow%20Units%2FLancer%2FLancer_Down_Defence.pngR2i7264R3R4R5R383R7tgoR0y56:editor-human%2FYellow%20Units%2FLancer%2FLancer_Idle.pngR2i13325R3R4R5R384R7tgoR0y64:editor-human%2FYellow%20Units%2FLancer%2FLancer_Right_Attack.pngR2i4804R3R4R5R385R7tgoR0y65:editor-human%2FYellow%20Units%2FLancer%2FLancer_Right_Defence.pngR2i7393R3R4R5R386R7tgoR0y55:editor-human%2FYellow%20Units%2FLancer%2FLancer_Run.pngR2i11241R3R4R5R387R7tgoR0y66:editor-human%2FYellow%20Units%2FLancer%2FLancer_UpRight_Attack.pngR2i5906R3R4R5R388R7tgoR0y67:editor-human%2FYellow%20Units%2FLancer%2FLancer_UpRight_Defence.pngR2i7956R3R4R5R389R7tgoR0y61:editor-human%2FYellow%20Units%2FLancer%2FLancer_Up_Attack.pngR2i5173R3R4R5R390R7tgoR0y62:editor-human%2FYellow%20Units%2FLancer%2FLancer_Up_Defence.pngR2i6944R3R4R5R391R7tgoR0y47:editor-human%2FYellow%20Units%2FMonk%2FHeal.pngR2i11570R3R4R5R392R7tgoR0y54:editor-human%2FYellow%20Units%2FMonk%2FHeal_Effect.pngR2i9658R3R4R5R393R7tgoR0y47:editor-human%2FYellow%20Units%2FMonk%2FIdle.pngR2i6535R3R4R5R394R7tgoR0y46:editor-human%2FYellow%20Units%2FMonk%2FRun.pngR2i5583R3R4R5R395R7tgoR0y58:editor-human%2FYellow%20Units%2FPawn%2FPawn_Idle%20Axe.pngR2i7439R3R4R5R396R7tgoR0y59:editor-human%2FYellow%20Units%2FPawn%2FPawn_Idle%20Gold.pngR2i8597R3R4R5R397R7tgoR0y61:editor-human%2FYellow%20Units%2FPawn%2FPawn_Idle%20Hammer.pngR2i7877R3R4R5R398R7tgoR0y60:editor-human%2FYellow%20Units%2FPawn%2FPawn_Idle%20Knife.pngR2i7366R3R4R5R399R7tgoR0y59:editor-human%2FYellow%20Units%2FPawn%2FPawn_Idle%20Meat.pngR2i9187R3R4R5R400R7tgoR0y62:editor-human%2FYellow%20Units%2FPawn%2FPawn_Idle%20Pickaxe.pngR2i7373R3R4R5R401R7tgoR0y59:editor-human%2FYellow%20Units%2FPawn%2FPawn_Idle%20Wood.pngR2i7037R3R4R5R402R7tgoR0y52:editor-human%2FYellow%20Units%2FPawn%2FPawn_Idle.pngR2i6652R3R4R5R403R7tgoR0y62:editor-human%2FYellow%20Units%2FPawn%2FPawn_Interact%20Axe.pngR2i8056R3R4R5R404R7tgoR0y65:editor-human%2FYellow%20Units%2FPawn%2FPawn_Interact%20Hammer.pngR2i4996R3R4R5R405R7tgoR0y64:editor-human%2FYellow%20Units%2FPawn%2FPawn_Interact%20Knife.pngR2i5744R3R4R5R406R7tgoR0y66:editor-human%2FYellow%20Units%2FPawn%2FPawn_Interact%20Pickaxe.pngR2i8508R3R4R5R407R7tgoR0y57:editor-human%2FYellow%20Units%2FPawn%2FPawn_Run%20Axe.pngR2i7177R3R4R5R408R7tgoR0y58:editor-human%2FYellow%20Units%2FPawn%2FPawn_Run%20Gold.pngR2i7698R3R4R5R409R7tgoR0y60:editor-human%2FYellow%20Units%2FPawn%2FPawn_Run%20Hammer.pngR2i7605R3R4R5R410R7tgoR0y59:editor-human%2FYellow%20Units%2FPawn%2FPawn_Run%20Knife.pngR2i6778R3R4R5R411R7tgoR0y58:editor-human%2FYellow%20Units%2FPawn%2FPawn_Run%20Meat.pngR2i8915R3R4R5R412R7tgoR0y61:editor-human%2FYellow%20Units%2FPawn%2FPawn_Run%20Pickaxe.pngR2i6876R3R4R5R413R7tgoR0y58:editor-human%2FYellow%20Units%2FPawn%2FPawn_Run%20Wood.pngR2i8060R3R4R5R414R7tgoR0y51:editor-human%2FYellow%20Units%2FPawn%2FPawn_Run.pngR2i6080R3R4R5R415R7tgoR0y61:editor-human%2FYellow%20Units%2FWarrior%2FWarrior_Attack1.pngR2i8127R3R4R5R416R7tgoR0y61:editor-human%2FYellow%20Units%2FWarrior%2FWarrior_Attack2.pngR2i8939R3R4R5R417R7tgoR0y59:editor-human%2FYellow%20Units%2FWarrior%2FWarrior_Guard.pngR2i7394R3R4R5R418R7tgoR0y58:editor-human%2FYellow%20Units%2FWarrior%2FWarrior_Idle.pngR2i9828R3R4R5R419R7tgoR0y57:editor-human%2FYellow%20Units%2FWarrior%2FWarrior_Run.pngR2i9805R3R4R5R420R7tgoR0y39:editor-buildings%2FYellow%2FArchery.pngR2i10266R3R4R5R421R7tgoR0y40:editor-buildings%2FYellow%2FBarracks.pngR2i9970R3R4R5R422R7tgoR0y38:editor-buildings%2FYellow%2FCastle.pngR2i17151R3R4R5R423R7tgoR0y38:editor-buildings%2FYellow%2FHouse1.pngR2i5349R3R4R5R424R7tgoR0y38:editor-buildings%2FYellow%2FHouse2.pngR2i5954R3R4R5R425R7tgoR0y38:editor-buildings%2FYellow%2FHouse3.pngR2i4461R3R4R5R426R7tgoR0y41:editor-buildings%2FYellow%2FMonastery.pngR2i11334R3R4R5R427R7tgoR0y37:editor-buildings%2FYellow%2FTower.pngR2i6581R3R4R5R428R7tgoR0y56:editor-human%2FPurple%20Units%2FArcher%2FArcher_Idle.pngR2i5045R3R4R5R429R7tgoR0y55:editor-human%2FPurple%20Units%2FArcher%2FArcher_Run.pngR2i5334R3R4R5R430R7tgoR0y57:editor-human%2FPurple%20Units%2FArcher%2FArcher_Shoot.pngR2i11960R3R4R5R431R7tgoR0y50:editor-human%2FPurple%20Units%2FArcher%2FArrow.pngR2i416R3R4R5R432R7tgoR0y68:editor-human%2FPurple%20Units%2FLancer%2FLancer_DownRight_Attack.pngR2i6735R3R4R5R433R7tgoR0y69:editor-human%2FPurple%20Units%2FLancer%2FLancer_DownRight_Defence.pngR2i8653R3R4R5R434R7tgoR0y63:editor-human%2FPurple%20Units%2FLancer%2FLancer_Down_Attack.pngR2i6053R3R4R5R435R7tgoR0y64:editor-human%2FPurple%20Units%2FLancer%2FLancer_Down_Defence.pngR2i7289R3R4R5R436R7tgoR0y56:editor-human%2FPurple%20Units%2FLancer%2FLancer_Idle.pngR2i13247R3R4R5R437R7tgoR0y64:editor-human%2FPurple%20Units%2FLancer%2FLancer_Right_Attack.pngR2i4780R3R4R5R438R7tgoR0y65:editor-human%2FPurple%20Units%2FLancer%2FLancer_Right_Defence.pngR2i7364R3R4R5R439R7tgoR0y55:editor-human%2FPurple%20Units%2FLancer%2FLancer_Run.pngR2i11182R3R4R5R440R7tgoR0y66:editor-human%2FPurple%20Units%2FLancer%2FLancer_UpRight_Attack.pngR2i5919R3R4R5R441R7tgoR0y67:editor-human%2FPurple%20Units%2FLancer%2FLancer_UpRight_Defence.pngR2i7891R3R4R5R442R7tgoR0y61:editor-human%2FPurple%20Units%2FLancer%2FLancer_Up_Attack.pngR2i5194R3R4R5R443R7tgoR0y62:editor-human%2FPurple%20Units%2FLancer%2FLancer_Up_Defence.pngR2i6976R3R4R5R444R7tgoR0y47:editor-human%2FPurple%20Units%2FMonk%2FHeal.pngR2i11586R3R4R5R445R7tgoR0y54:editor-human%2FPurple%20Units%2FMonk%2FHeal_Effect.pngR2i9658R3R4R5R446R7tgoR0y47:editor-human%2FPurple%20Units%2FMonk%2FIdle.pngR2i6519R3R4R5R447R7tgoR0y46:editor-human%2FPurple%20Units%2FMonk%2FRun.pngR2i5576R3R4R5R448R7tgoR0y58:editor-human%2FPurple%20Units%2FPawn%2FPawn_Idle%20Axe.pngR2i7420R3R4R5R449R7tgoR0y59:editor-human%2FPurple%20Units%2FPawn%2FPawn_Idle%20Gold.pngR2i8568R3R4R5R450R7tgoR0y61:editor-human%2FPurple%20Units%2FPawn%2FPawn_Idle%20Hammer.pngR2i7860R3R4R5R451R7tgoR0y60:editor-human%2FPurple%20Units%2FPawn%2FPawn_Idle%20Knife.pngR2i7365R3R4R5R452R7tgoR0y59:editor-human%2FPurple%20Units%2FPawn%2FPawn_Idle%20Meat.pngR2i9179R3R4R5R453R7tgoR0y62:editor-human%2FPurple%20Units%2FPawn%2FPawn_Idle%20Pickaxe.pngR2i7355R3R4R5R454R7tgoR0y59:editor-human%2FPurple%20Units%2FPawn%2FPawn_Idle%20Wood.pngR2i7029R3R4R5R455R7tgoR0y52:editor-human%2FPurple%20Units%2FPawn%2FPawn_Idle.pngR2i6638R3R4R5R456R7tgoR0y62:editor-human%2FPurple%20Units%2FPawn%2FPawn_Interact%20Axe.pngR2i8053R3R4R5R457R7tgoR0y65:editor-human%2FPurple%20Units%2FPawn%2FPawn_Interact%20Hammer.pngR2i4993R3R4R5R458R7tgoR0y64:editor-human%2FPurple%20Units%2FPawn%2FPawn_Interact%20Knife.pngR2i5741R3R4R5R459R7tgoR0y66:editor-human%2FPurple%20Units%2FPawn%2FPawn_Interact%20Pickaxe.pngR2i8506R3R4R5R460R7tgoR0y57:editor-human%2FPurple%20Units%2FPawn%2FPawn_Run%20Axe.pngR2i7159R3R4R5R461R7tgoR0y58:editor-human%2FPurple%20Units%2FPawn%2FPawn_Run%20Gold.pngR2i7692R3R4R5R462R7tgoR0y60:editor-human%2FPurple%20Units%2FPawn%2FPawn_Run%20Hammer.pngR2i7592R3R4R5R463R7tgoR0y59:editor-human%2FPurple%20Units%2FPawn%2FPawn_Run%20Knife.pngR2i6775R3R4R5R464R7tgoR0y58:editor-human%2FPurple%20Units%2FPawn%2FPawn_Run%20Meat.pngR2i8909R3R4R5R465R7tgoR0y61:editor-human%2FPurple%20Units%2FPawn%2FPawn_Run%20Pickaxe.pngR2i6863R3R4R5R466R7tgoR0y58:editor-human%2FPurple%20Units%2FPawn%2FPawn_Run%20Wood.pngR2i8052R3R4R5R467R7tgoR0y51:editor-human%2FPurple%20Units%2FPawn%2FPawn_Run.pngR2i6064R3R4R5R468R7tgoR0y61:editor-human%2FPurple%20Units%2FWarrior%2FWarrior_Attack1.pngR2i8150R3R4R5R469R7tgoR0y61:editor-human%2FPurple%20Units%2FWarrior%2FWarrior_Attack2.pngR2i8972R3R4R5R470R7tgoR0y59:editor-human%2FPurple%20Units%2FWarrior%2FWarrior_Guard.pngR2i7440R3R4R5R471R7tgoR0y58:editor-human%2FPurple%20Units%2FWarrior%2FWarrior_Idle.pngR2i9829R3R4R5R472R7tgoR0y57:editor-human%2FPurple%20Units%2FWarrior%2FWarrior_Run.pngR2i9759R3R4R5R473R7tgoR0y39:editor-buildings%2FPurple%2FArchery.pngR2i10144R3R4R5R474R7tgoR0y40:editor-buildings%2FPurple%2FBarracks.pngR2i9946R3R4R5R475R7tgoR0y38:editor-buildings%2FPurple%2FCastle.pngR2i17023R3R4R5R476R7tgoR0y38:editor-buildings%2FPurple%2FHouse1.pngR2i5388R3R4R5R477R7tgoR0y38:editor-buildings%2FPurple%2FHouse2.pngR2i5943R3R4R5R478R7tgoR0y38:editor-buildings%2FPurple%2FHouse3.pngR2i4369R3R4R5R479R7tgoR0y41:editor-buildings%2FPurple%2FMonastery.pngR2i11273R3R4R5R480R7tgoR0y37:editor-buildings%2FPurple%2FTower.pngR2i6494R3R4R5R481R7tgoR0y55:editor-human%2FBlack%20Units%2FArcher%2FArcher_Idle.pngR2i5067R3R4R5R482R7tgoR0y54:editor-human%2FBlack%20Units%2FArcher%2FArcher_Run.pngR2i5370R3R4R5R483R7tgoR0y56:editor-human%2FBlack%20Units%2FArcher%2FArcher_Shoot.pngR2i11952R3R4R5R484R7tgoR0y49:editor-human%2FBlack%20Units%2FArcher%2FArrow.pngR2i416R3R4R5R485R7tgoR0y67:editor-human%2FBlack%20Units%2FLancer%2FLancer_DownRight_Attack.pngR2i6669R3R4R5R486R7tgoR0y68:editor-human%2FBlack%20Units%2FLancer%2FLancer_DownRight_Defence.pngR2i8632R3R4R5R487R7tgoR0y62:editor-human%2FBlack%20Units%2FLancer%2FLancer_Down_Attack.pngR2i6037R3R4R5R488R7tgoR0y63:editor-human%2FBlack%20Units%2FLancer%2FLancer_Down_Defence.pngR2i7215R3R4R5R489R7tgoR0y55:editor-human%2FBlack%20Units%2FLancer%2FLancer_Idle.pngR2i13249R3R4R5R490R7tgoR0y63:editor-human%2FBlack%20Units%2FLancer%2FLancer_Right_Attack.pngR2i4757R3R4R5R491R7tgoR0y64:editor-human%2FBlack%20Units%2FLancer%2FLancer_Right_Defence.pngR2i7403R3R4R5R492R7tgoR0y54:editor-human%2FBlack%20Units%2FLancer%2FLancer_Run.pngR2i11092R3R4R5R493R7tgoR0y65:editor-human%2FBlack%20Units%2FLancer%2FLancer_UpRight_Attack.pngR2i5863R3R4R5R494R7tgoR0y66:editor-human%2FBlack%20Units%2FLancer%2FLancer_UpRight_Defence.pngR2i7926R3R4R5R495R7tgoR0y60:editor-human%2FBlack%20Units%2FLancer%2FLancer_Up_Attack.pngR2i5139R3R4R5R496R7tgoR0y61:editor-human%2FBlack%20Units%2FLancer%2FLancer_Up_Defence.pngR2i7040R3R4R5R497R7tgoR0y46:editor-human%2FBlack%20Units%2FMonk%2FHeal.pngR2i11572R3R4R5R498R7tgoR0y53:editor-human%2FBlack%20Units%2FMonk%2FHeal_Effect.pngR2i9658R3R4R5R499R7tgoR0y46:editor-human%2FBlack%20Units%2FMonk%2FIdle.pngR2i6482R3R4R5R500R7tgoR0y45:editor-human%2FBlack%20Units%2FMonk%2FRun.pngR2i5600R3R4R5R501R7tgoR0y57:editor-human%2FBlack%20Units%2FPawn%2FPawn_Idle%20Axe.pngR2i7419R3R4R5R502R7tgoR0y58:editor-human%2FBlack%20Units%2FPawn%2FPawn_Idle%20Gold.pngR2i8581R3R4R5R503R7tgoR0y60:editor-human%2FBlack%20Units%2FPawn%2FPawn_Idle%20Hammer.pngR2i7860R3R4R5R504R7tgoR0y59:editor-human%2FBlack%20Units%2FPawn%2FPawn_Idle%20Knife.pngR2i7352R3R4R5R505R7tgoR0y58:editor-human%2FBlack%20Units%2FPawn%2FPawn_Idle%20Meat.pngR2i9154R3R4R5R506R7tgoR0y61:editor-human%2FBlack%20Units%2FPawn%2FPawn_Idle%20Pickaxe.pngR2i7441R3R4R5R507R7tgoR0y58:editor-human%2FBlack%20Units%2FPawn%2FPawn_Idle%20Wood.pngR2i7009R3R4R5R508R7tgoR0y51:editor-human%2FBlack%20Units%2FPawn%2FPawn_Idle.pngR2i6629R3R4R5R509R7tgoR0y61:editor-human%2FBlack%20Units%2FPawn%2FPawn_Interact%20Axe.pngR2i8055R3R4R5R510R7tgoR0y64:editor-human%2FBlack%20Units%2FPawn%2FPawn_Interact%20Hammer.pngR2i4992R3R4R5R511R7tgoR0y63:editor-human%2FBlack%20Units%2FPawn%2FPawn_Interact%20Knife.pngR2i5741R3R4R5R512R7tgoR0y65:editor-human%2FBlack%20Units%2FPawn%2FPawn_Interact%20Pickaxe.pngR2i8572R3R4R5R513R7tgoR0y56:editor-human%2FBlack%20Units%2FPawn%2FPawn_Run%20Axe.pngR2i7153R3R4R5R514R7tgoR0y57:editor-human%2FBlack%20Units%2FPawn%2FPawn_Run%20Gold.pngR2i7699R3R4R5R515R7tgoR0y59:editor-human%2FBlack%20Units%2FPawn%2FPawn_Run%20Hammer.pngR2i7596R3R4R5R516R7tgoR0y58:editor-human%2FBlack%20Units%2FPawn%2FPawn_Run%20Knife.pngR2i6768R3R4R5R517R7tgoR0y57:editor-human%2FBlack%20Units%2FPawn%2FPawn_Run%20Meat.pngR2i8907R3R4R5R518R7tgoR0y60:editor-human%2FBlack%20Units%2FPawn%2FPawn_Run%20Pickaxe.pngR2i6905R3R4R5R519R7tgoR0y57:editor-human%2FBlack%20Units%2FPawn%2FPawn_Run%20Wood.pngR2i8053R3R4R5R520R7tgoR0y50:editor-human%2FBlack%20Units%2FPawn%2FPawn_Run.pngR2i6055R3R4R5R521R7tgoR0y60:editor-human%2FBlack%20Units%2FWarrior%2FWarrior_Attack1.pngR2i8176R3R4R5R522R7tgoR0y60:editor-human%2FBlack%20Units%2FWarrior%2FWarrior_Attack2.pngR2i9015R3R4R5R523R7tgoR0y58:editor-human%2FBlack%20Units%2FWarrior%2FWarrior_Guard.pngR2i7359R3R4R5R524R7tgoR0y57:editor-human%2FBlack%20Units%2FWarrior%2FWarrior_Idle.pngR2i9593R3R4R5R525R7tgoR0y56:editor-human%2FBlack%20Units%2FWarrior%2FWarrior_Run.pngR2i9778R3R4R5R526R7tgoR0y38:editor-buildings%2FBlack%2FArchery.pngR2i10170R3R4R5R527R7tgoR0y39:editor-buildings%2FBlack%2FBarracks.pngR2i9915R3R4R5R528R7tgoR0y37:editor-buildings%2FBlack%2FCastle.pngR2i17094R3R4R5R529R7tgoR0y37:editor-buildings%2FBlack%2FHouse1.pngR2i5282R3R4R5R530R7tgoR0y37:editor-buildings%2FBlack%2FHouse2.pngR2i5958R3R4R5R531R7tgoR0y37:editor-buildings%2FBlack%2FHouse3.pngR2i4418R3R4R5R532R7tgoR0y40:editor-buildings%2FBlack%2FMonastery.pngR2i11279R3R4R5R533R7tgoR0y36:editor-buildings%2FBlack%2FTower.pngR2i6496R3R4R5R534R7tgoR0y48:editor-lancer-Blue%2FLancer_DownRight_Attack.pngR2i6729R3R4R5R535R7tgoR0y49:editor-lancer-Blue%2FLancer_DownRight_Defence.pngR2i8661R3R4R5R536R7tgoR0y43:editor-lancer-Blue%2FLancer_Down_Attack.pngR2i6091R3R4R5R537R7tgoR0y44:editor-lancer-Blue%2FLancer_Down_Defence.pngR2i7309R3R4R5R538R7tgoR0y36:editor-lancer-Blue%2FLancer_Idle.pngR2i13286R3R4R5R539R7tgoR0y44:editor-lancer-Blue%2FLancer_Right_Attack.pngR2i4798R3R4R5R540R7tgoR0y45:editor-lancer-Blue%2FLancer_Right_Defence.pngR2i7399R3R4R5R541R7tgoR0y35:editor-lancer-Blue%2FLancer_Run.pngR2i11232R3R4R5R542R7tgoR0y46:editor-lancer-Blue%2FLancer_UpRight_Attack.pngR2i5941R3R4R5R543R7tgoR0y47:editor-lancer-Blue%2FLancer_UpRight_Defence.pngR2i7940R3R4R5R544R7tgoR0y41:editor-lancer-Blue%2FLancer_Up_Attack.pngR2i5219R3R4R5R545R7tgoR0y42:editor-lancer-Blue%2FLancer_Up_Defence.pngR2i7004R3R4R5R546R7tgoR0y47:editor-lancer-Red%2FLancer_DownRight_Attack.pngR2i6729R3R4R5R547R7tgoR0y48:editor-lancer-Red%2FLancer_DownRight_Defence.pngR2i8720R3R4R5R548R7tgoR0y42:editor-lancer-Red%2FLancer_Down_Attack.pngR2i6124R3R4R5R549R7tgoR0y43:editor-lancer-Red%2FLancer_Down_Defence.pngR2i7287R3R4R5R550R7tgoR0y35:editor-lancer-Red%2FLancer_Idle.pngR2i13271R3R4R5R551R7tgoR0y43:editor-lancer-Red%2FLancer_Right_Attack.pngR2i4759R3R4R5R552R7tgoR0y44:editor-lancer-Red%2FLancer_Right_Defence.pngR2i7348R3R4R5R553R7tgoR0y34:editor-lancer-Red%2FLancer_Run.pngR2i11187R3R4R5R554R7tgoR0y45:editor-lancer-Red%2FLancer_UpRight_Attack.pngR2i5916R3R4R5R555R7tgoR0y46:editor-lancer-Red%2FLancer_UpRight_Defence.pngR2i7931R3R4R5R556R7tgoR0y40:editor-lancer-Red%2FLancer_Up_Attack.pngR2i5185R3R4R5R557R7tgoR0y41:editor-lancer-Red%2FLancer_Up_Defence.pngR2i6997R3R4R5R558R7tgoR0y101:res%2FTiny%20Swords%20%28Enemy%20Pack%29%2FEnemy%20Pack%2FExtra%2FGnome%20Buildings%2FGnome%20Hut.pngR2i4866R3R4R5y23:editor-extra-building-0R7tgoR0y103:res%2FTiny%20Swords%20%28Enemy%20Pack%29%2FEnemy%20Pack%2FExtra%2FGnome%20Buildings%2FGnome%20Tower.pngR2i6613R3R4R5y23:editor-extra-building-1R7tgoR0y86:res%2FTiny%20Swords%20%28Enemy%20Pack%29%2FEnemy%20Pack%2FExtra%2FCave%2FCave_Idle.pngR2i16336R3R4R5y23:editor-extra-building-2R7tgoR0y108:res%2FTiny%20Swords%20%28Enemy%20Pack%29%2FEnemy%20Pack%2FExtra%2FPirate%20Tower%2FPirate%20Tower_Ground.pngR2i5178R3R4R5y23:editor-extra-building-3R7tgoR0y107:res%2FTiny%20Swords%20%28Enemy%20Pack%29%2FEnemy%20Pack%2FExtra%2FPirate%20Tower%2FPirate%20Tower_Water.pngR2i13160R3R4R5y23:editor-extra-building-4R7tgoR0y91:res%2FTiny%20Swords%20%28Enemy%20Pack%29%2FEnemy%20Pack%2FExtra%2FCannon%2FCannon_Right.pngR2i1064R3R4R5y23:editor-extra-building-5R7tgoR0y114:res%2FTiny%20Swords%20%28Enemy%20Pack%29%2FEnemy%20Pack%2FExtra%2FWooden%20Fence%2FWooden%20Fence_64x64%20tile.pngR2i6424R3R4R5y12:editor-fenceR7tgoR0y25:res%2Fmaps%2Finitial.jsonR2i468389R3y4:TEXTR5y11:initial-mapR7tgoR0R126R2i40222R3R4R5y9:terrain-1R7tgoR0R30R2i40334R3R4R5y9:terrain-2R7tgoR0y80:res%2FTiny%20Swords%20%28Free%20Pack%29%2FTerrain%2FTileset%2FTilemap_color3.pngR2i40184R3R4R5y9:terrain-3R7tgoR0y80:res%2FTiny%20Swords%20%28Free%20Pack%29%2FTerrain%2FTileset%2FTilemap_color4.pngR2i40211R3R4R5y9:terrain-4R7tgoR0y80:res%2FTiny%20Swords%20%28Free%20Pack%29%2FTerrain%2FTileset%2FTilemap_color5.pngR2i40342R3R4R5y9:terrain-5R7tgoR0y92:res%2FTiny%20Swords%20%28Free%20Pack%29%2FTerrain%2FTileset%2FWater%20Background%20color.pngR2i222R3R4R5y13:terrain-waterR7tgoR0y78:res%2FTiny%20Swords%20%28Free%20Pack%29%2FTerrain%2FTileset%2FWater%20Foam.pngR2i10835R3R4R5y12:terrain-foamR7tgoR0y72:res%2FTiny%20Swords%20%28Free%20Pack%29%2FTerrain%2FTileset%2FShadow.pngR2i995R3R4R5y14:terrain-shadowR7tgoR0y97:res%2FTiny%20Swords%20%28Free%20Pack%29%2FUI%20Elements%2FUI%20Elements%2FCursors%2FCursor_01.pngR2i533R3R4R5y8:cursor-1R7tgoR0y97:res%2FTiny%20Swords%20%28Free%20Pack%29%2FUI%20Elements%2FUI%20Elements%2FCursors%2FCursor_02.pngR2i581R3R4R5y8:cursor-2R7tgoR0y97:res%2FTiny%20Swords%20%28Free%20Pack%29%2FUI%20Elements%2FUI%20Elements%2FCursors%2FCursor_03.pngR2i710R3R4R5y8:cursor-3R7tgoR0y97:res%2FTiny%20Swords%20%28Free%20Pack%29%2FUI%20Elements%2FUI%20Elements%2FCursors%2FCursor_04.pngR2i894R3R4R5y8:cursor-4R7tgh\",\"rootPath\":null,\"version\":2,\"libraryArgs\":[],\"libraryType\":null}";
 	var manifest = lime_utils_AssetManifest.parse(data,ManifestResources.rootPath);
 	var library = lime_utils_AssetLibrary.fromManifest(manifest);
 	lime_utils_Assets.registerLibrary("default",library);
@@ -7731,7 +7940,7 @@ MapEditing.prototype = {
 		}
 		this.world.configureHerds();
 	}
-	,erase: function(wx,wy) {
+	,pick: function(wx,wy) {
 		var hit = null;
 		var _g = 0;
 		var _g1 = this.world.objects.get_numChildren();
@@ -7782,12 +7991,27 @@ MapEditing.prototype = {
 				}
 			}
 		}
+		return hit;
+	}
+	,erase: function(wx,wy) {
+		var hit = this.pick(wx,wy);
 		if(hit == null) {
 			this.error = "No object here";
 			return false;
 		}
 		if(((hit) instanceof SheepAnimal)) {
-			this.removeResource(hit.owner);
+			var animal = hit;
+			animal.owner.take(10,animal);
+			var _g = 0;
+			var _g1 = this.world.allUnits();
+			while(_g < _g1.length) {
+				var u = _g1[_g];
+				++_g;
+				if(u.sheepTarget == animal) {
+					u.sheepTarget = null;
+					u.gatherTimer = 0;
+				}
+			}
 		} else if(((hit) instanceof Unit)) {
 			this.removeUnit(hit);
 		} else if(((hit) instanceof Building)) {
@@ -7827,6 +8051,183 @@ MapEditing.prototype = {
 		this.rebuildNavigation();
 		this.world.terrainView.refresh(wx / 32 | 0,wy / 32 | 0);
 		this.error = "Erased";
+		return true;
+	}
+	,move: function(hit,wx,wy) {
+		if(hit == null || hit.parent == null) {
+			return false;
+		}
+		var cx = wx / 32 | 0;
+		var cy = wy / 32 | 0;
+		var water = false;
+		var w = 1;
+		var h = 1;
+		var b = ((hit) instanceof Building) ? hit : null;
+		var r = ((hit) instanceof ResourceNode) ? hit : null;
+		var scenery = ((hit) instanceof Scenery) ? hit : null;
+		var sheep = ((hit) instanceof SheepAnimal) ? hit : null;
+		var unit = ((hit) instanceof Unit) ? hit : null;
+		if(b != null) {
+			w = b.footprintWidth;
+			h = b.footprintHeight;
+			water = b.get_waterHut();
+		}
+		if(scenery != null) {
+			water = Scenery.water(scenery.id);
+		}
+		if(((hit) instanceof TransportBoat)) {
+			water = true;
+		}
+		if(unit != null && (unit.transport != null || unit.garrison != null || unit.sailing)) {
+			this.error = "Unload this unit before moving it";
+			return false;
+		}
+		var _g = cy - h + 1;
+		var _g1 = cy + 1;
+		while(_g < _g1) {
+			var y = _g++;
+			var _g2 = cx - (w / 2 | 0);
+			var _g3 = cx - (w / 2 | 0) + w;
+			while(_g2 < _g3) {
+				var x = _g2++;
+				if(x < 0 || y < 0 || x >= 84 || y >= 60) {
+					this.error = "Outside map";
+					return false;
+				}
+				var id = y * 84 + x;
+				var t = this.world.terrain;
+				if((water ? !t.water[id] || t.bridges[id] : t.water[id] && !t.bridges[id]) || t.cliffs[id]) {
+					this.error = "Choose clear " + (water ? "water" : "land");
+					return false;
+				}
+				var _g4 = 0;
+				var _g5 = this.world.buildings;
+				while(_g4 < _g5.length) {
+					var other = _g5[_g4];
+					++_g4;
+					if(other != hit && this.world.inFootprint(other,x,y)) {
+						this.error = "Building in the way";
+						return false;
+					}
+				}
+				var _g6 = 0;
+				var _g7 = this.world.boats;
+				while(_g6 < _g7.length) {
+					var other1 = _g7[_g6];
+					++_g6;
+					if(other1 != hit && (other1.get_x() / 32 | 0) == x && (other1.get_y() / 32 | 0) == y) {
+						this.error = "Boat in the way";
+						return false;
+					}
+				}
+				var _g8 = 0;
+				var _g9 = this.world.resources;
+				while(_g8 < _g9.length) {
+					var other2 = _g9[_g8];
+					++_g8;
+					if(other2 != hit && other2.cellX == x && other2.cellY == y) {
+						this.error = "Resource in the way";
+						return false;
+					}
+				}
+				var _g10 = 0;
+				var _g11 = this.world.scenery;
+				while(_g10 < _g11.length) {
+					var other3 = _g11[_g10];
+					++_g10;
+					if(other3 != hit && other3.blocking && other3.cx == x && other3.cy == y) {
+						this.error = "Rock in the way";
+						return false;
+					}
+				}
+				var _g12 = 0;
+				var _g13 = this.world.allUnits();
+				while(_g12 < _g13.length) {
+					var other4 = _g13[_g12];
+					++_g12;
+					if(other4 != hit && other4.transport == null && other4.garrison == null && (other4.get_x() / 32 | 0) == x && (other4.get_y() / 32 | 0) == y) {
+						this.error = "Unit in the way";
+						return false;
+					}
+				}
+				if(b != null && !water && this.world.navigation.elevation[id] != this.world.navigation.elevation[cy * 84 + cx]) {
+					this.error = "Choose level ground";
+					return false;
+				}
+			}
+		}
+		var oldX = hit.get_x();
+		var oldY = hit.get_y();
+		if(scenery != null) {
+			if(scenery.blocking) {
+				this.world.terrain.rocks[scenery.cy * 84 + scenery.cx] = false;
+			}
+			scenery.position(wx,wy);
+			if(scenery.blocking) {
+				this.world.terrain.rocks[scenery.cy * 84 + scenery.cx] = true;
+			}
+		} else if(sheep != null) {
+			sheep.homeX = wx;
+			sheep.homeY = wy;
+			sheep.rest();
+		} else {
+			hit.set_x(wx);
+			hit.set_y(wy);
+			if(b != null) {
+				b.cellX = cx;
+				b.cellY = cy;
+				var _g = 0;
+				var _g1 = b.archers;
+				while(_g < _g1.length) {
+					var u = _g1[_g];
+					++_g;
+					u.set_x(wx);
+					u.set_y(wy);
+				}
+			}
+			if(r != null) {
+				r.cellX = cx;
+				r.cellY = cy;
+				var _g = 0;
+				var _g1 = r.sheep;
+				while(_g < _g1.length) {
+					var s = _g1[_g];
+					++_g;
+					s.homeX += wx - oldX;
+					s.homeY += wy - oldY;
+					s.rest();
+				}
+			}
+			if(unit != null) {
+				this.world.cancelTask(unit);
+				unit.route = [];
+			}
+			if(((hit) instanceof TransportBoat)) {
+				var boat = hit;
+				this.world.transport.stop(boat);
+				var _g = 0;
+				var _g1 = boat.passengers;
+				while(_g < _g1.length) {
+					var u = _g1[_g];
+					++_g;
+					u.set_x(wx);
+					u.set_y(wy);
+				}
+			}
+		}
+		var _g = 0;
+		var _g1 = this.world.allUnits();
+		while(_g < _g1.length) {
+			var u = _g1[_g];
+			++_g;
+			if(u.resourceTarget == r && r != null || b != null && (u.buildTarget == b || u.towerTarget == b || u.attackTarget == b)) {
+				this.world.cancelTask(u);
+				u.route = [];
+			}
+		}
+		this.rebuildNavigation();
+		this.world.terrainView.refresh();
+		this.error = "Moved";
 		return true;
 	}
 	,occupied: function(cx,cy) {
@@ -7888,20 +8289,28 @@ MapEditing.prototype = {
 		if(cx < 0 || cy < 0 || cx >= 84 || cy >= 60) {
 			return false;
 		}
-		if(a.type == "mat") {
+		if(a.type == "mat" || a.type == "tile") {
 			if(this.occupied(cx,cy)) {
 				this.error = "Erase objects on this tile before painting";
 				return false;
 			}
 			var t = this.world.terrain;
-			t.water[id] = a.kind == "water";
+			t.tiles[id] = a.type == "tile" ? a.id : "";
+			t.water[id] = a.kind == "water" || a.art == "terrain-water" || a.art == "terrain-foam";
 			var tmp = t.rocks[id] = t.bridges[id] = false;
 			t.cliffs[id] = tmp;
 			this.world.navigation.elevation[id] = 0;
 			this.world.navigation.ramps[id] = false;
+			if(a.type == "tile" && StringTools.startsWith(a.art,"terrain-") && a.art.length == 9) {
+				var tx = a.tile % 9;
+				var ty = a.tile / 9 | 0;
+				t.cliffs[id] = tx >= 5 && ty >= 4;
+				this.world.navigation.ramps[id] = tx < 4 && ty >= 4;
+				this.world.navigation.elevation[id] = tx >= 5 && ty < 4 ? 1 : 0;
+			}
 			this.rebuildNavigation();
 			this.world.terrainView.refresh(cx,cy);
-			this.error = "Painted " + a.kind;
+			this.error = "Painted " + a.title;
 			return true;
 		}
 		if(a.type == "scenery") {
@@ -8374,33 +8783,43 @@ var ResourceNode = function(kind,cx,cy,amount,treeArt) {
 	if(kind == "Food") {
 		this.removeChild(this.body);
 		var animal = new SheepAnimal(this,0);
+		animal.alive = 0 < this.get_animals();
 		this.sheep.push(animal);
 		this.addChild(animal);
 		var animal = new SheepAnimal(this,1);
+		animal.alive = 1 < this.get_animals();
 		this.sheep.push(animal);
 		this.addChild(animal);
 		var animal = new SheepAnimal(this,2);
+		animal.alive = 2 < this.get_animals();
 		this.sheep.push(animal);
 		this.addChild(animal);
 		var animal = new SheepAnimal(this,3);
+		animal.alive = 3 < this.get_animals();
 		this.sheep.push(animal);
 		this.addChild(animal);
 		var animal = new SheepAnimal(this,4);
+		animal.alive = 4 < this.get_animals();
 		this.sheep.push(animal);
 		this.addChild(animal);
 		var animal = new SheepAnimal(this,5);
+		animal.alive = 5 < this.get_animals();
 		this.sheep.push(animal);
 		this.addChild(animal);
 		var animal = new SheepAnimal(this,6);
+		animal.alive = 6 < this.get_animals();
 		this.sheep.push(animal);
 		this.addChild(animal);
 		var animal = new SheepAnimal(this,7);
+		animal.alive = 7 < this.get_animals();
 		this.sheep.push(animal);
 		this.addChild(animal);
 		var animal = new SheepAnimal(this,8);
+		animal.alive = 8 < this.get_animals();
 		this.sheep.push(animal);
 		this.addChild(animal);
 		var animal = new SheepAnimal(this,9);
+		animal.alive = 9 < this.get_animals();
 		this.sheep.push(animal);
 		this.addChild(animal);
 	}
@@ -8427,11 +8846,32 @@ ResourceNode.prototype = $extend(openfl_display_Sprite.prototype,{
 	,get_depleted: function() {
 		return this.amount <= 0;
 	}
-	,take: function(requested) {
+	,take: function(requested,animal) {
 		if(requested <= 0 || this.get_depleted()) {
 			return 0;
 		}
 		var taken = this.kind == "Food" ? 10 : Math.min(requested,this.amount) | 0;
+		if(this.kind == "Food") {
+			if(animal == null) {
+				var _g = 0;
+				var _g1 = this.sheep;
+				while(_g < _g1.length) {
+					var s = _g1[_g];
+					++_g;
+					if(s.alive) {
+						animal = s;
+						break;
+					}
+				}
+			}
+			if(animal == null || !animal.alive || animal.owner != this) {
+				return 0;
+			}
+			animal.alive = false;
+			animal.set_visible(false);
+			animal.selected = false;
+			animal.held = false;
+		}
 		this.amount = this.kind == "Wood" ? 0 : this.amount - taken;
 		if(this.kind == "Wood") {
 			this.regrowTimer = 0;
@@ -8495,20 +8935,28 @@ ResourceNode.prototype = $extend(openfl_display_Sprite.prototype,{
 			this.regrowTimer += dt;
 			while(this.regrowTimer >= 10) {
 				this.regrowTimer -= 10;
-				this.amount = Math.min(100,this.amount + 10) | 0;
+				var _g = 0;
+				var _g1 = this.sheep;
+				while(_g < _g1.length) {
+					var s = _g1[_g];
+					++_g;
+					if(!s.alive) {
+						s.alive = true;
+						s.rest();
+						this.amount += 10;
+						break;
+					}
+				}
 			}
 			var _g = 0;
 			var _g1 = this.sheep.length;
 			while(_g < _g1) {
 				var i = _g++;
 				var animal = this.sheep[i];
-				if(animal.get_visible() && i >= this.get_animals()) {
-					animal.rest();
-				}
-				animal.set_visible(i < this.get_animals());
+				animal.set_visible(animal.alive);
 				animal.update(dt);
 			}
-			this.ring.set_visible(this.hovered || this.get_depleted());
+			this.ring.set_visible(this.get_depleted());
 		} else {
 			if(this.kind == "Wood" && this.get_depleted()) {
 				this.regrowTimer += dt;
@@ -8625,7 +9073,7 @@ var SceneryEditor = function(world,clouds) {
 	this.tabs = ["mat","objects","buildings","units"];
 	this.chosen = new haxe_ds_StringMap();
 	this.listHeight = 420;
-	this.listTop = 178;
+	this.listTop = 210;
 	var _g = new haxe_ds_StringMap();
 	_g.h["mat"] = 0;
 	_g.h["objects"] = 0;
@@ -8641,6 +9089,7 @@ var SceneryEditor = function(world,clouds) {
 	this.snapToGrid = true;
 	this.showGrid = false;
 	this.revision = 0;
+	this.mode = "add";
 	this.active = false;
 	var _gthis = this;
 	openfl_display_Sprite.call(this);
@@ -8661,7 +9110,97 @@ $hxClasses["SceneryEditor"] = SceneryEditor;
 SceneryEditor.__name__ = "SceneryEditor";
 SceneryEditor.__super__ = openfl_display_Sprite;
 SceneryEditor.prototype = $extend(openfl_display_Sprite.prototype,{
-	layout: function(width,height) {
+	setMode: function(value) {
+		if(["add","delete","move"].indexOf(value) < 0) {
+			return;
+		}
+		this.cancelMove();
+		this.mode = value;
+		this.rebuild();
+	}
+	,begin: function(wx,wy) {
+		if(this.mode == "delete") {
+			this.erase(wx,wy);
+			return;
+		}
+		if(this.mode == "add") {
+			this.place(wx,wy);
+			return;
+		}
+		this.moving = this.editing.pick(wx,wy);
+		if(this.moving == null) {
+			var _g = 0;
+			var _g1 = this.clouds.clouds;
+			while(_g < _g1.length) {
+				var c = _g1[_g];
+				++_g;
+				if(c.containsPoint(wx - this.cameraX,wy - this.cameraY)) {
+					this.movingCloud = c;
+				}
+			}
+		}
+		if(this.movingCloud != null) {
+			this.cloudStart = { cx : this.movingCloud.cx, cy : this.movingCloud.cy, ox : this.movingCloud.offsetX, oy : this.movingCloud.offsetY};
+			this.moveOffset = new openfl_geom_Point(this.movingCloud.get_x() + this.cameraX - wx,this.movingCloud.get_y() + this.cameraY - wy);
+			return;
+		}
+		if(this.moving == null) {
+			this.message.set_text("Click an object to move");
+			return;
+		}
+		this.moveStart = new openfl_geom_Point(this.moving.get_x(),this.moving.get_y());
+		this.moveOffset = new openfl_geom_Point(this.moving.get_x() - wx,this.moving.get_y() - wy);
+		this.message.set_text("Drag to move · Release to place");
+	}
+	,dragTo: function(wx,wy) {
+		if(this.movingCloud != null) {
+			this.clouds.position(this.movingCloud,this.placementX(wx + this.moveOffset.x),this.placementY(wy + this.moveOffset.y),this.cameraX,this.cameraY);
+			return;
+		}
+		if(this.moving == null) {
+			return;
+		}
+		this.moving.set_x(this.placementX(wx + this.moveOffset.x));
+		this.moving.set_y(this.placementY(wy + this.moveOffset.y));
+	}
+	,endMove: function(wx,wy,valid) {
+		if(this.movingCloud != null) {
+			if(valid) {
+				this.dragTo(wx,wy);
+				this.movingCloud = null;
+				this.message.set_text("Moved cloud");
+			} else {
+				this.cancelMove();
+			}
+			return;
+		}
+		if(this.moving == null) {
+			return;
+		}
+		var target = this.moving;
+		var px = this.placementX(wx + this.moveOffset.x);
+		var py = this.placementY(wy + this.moveOffset.y);
+		this.cancelMove();
+		if(valid) {
+			this.editing.move(target,px,py);
+			this.message.set_text(this.editing.error);
+		}
+	}
+	,cancelMove: function() {
+		if(this.movingCloud != null) {
+			this.movingCloud.cx = this.cloudStart.cx;
+			this.movingCloud.cy = this.cloudStart.cy;
+			this.movingCloud.offsetX = this.cloudStart.ox;
+			this.movingCloud.offsetY = this.cloudStart.oy;
+			this.movingCloud = null;
+		}
+		if(this.moving != null) {
+			this.moving.set_x(this.moveStart.x);
+			this.moving.set_y(this.moveStart.y);
+		}
+		this.moving = null;
+	}
+	,layout: function(width,height) {
 		this.panelWidth = Math.min(380,Math.max(260,width * 0.34)) | 0;
 		this.panelHeight = Math.max(260,height - this.get_y() - 10) | 0;
 		this.listHeight = Math.max(56,this.panelHeight - this.listTop - 34) | 0;
@@ -8717,6 +9256,7 @@ SceneryEditor.prototype = $extend(openfl_display_Sprite.prototype,{
 		if(a == null) {
 			return;
 		}
+		this.mode = "add";
 		this.activeTab = a.tab;
 		this.selected = id;
 		this.chosen.h[this.activeTab] = id;
@@ -8724,7 +9264,7 @@ SceneryEditor.prototype = $extend(openfl_display_Sprite.prototype,{
 	}
 	,rebuild: function() {
 		var _gthis = this;
-		var previous = this.message == null ? "Click to place · Right-click to erase" : this.message.get_text();
+		var previous = this.message == null ? "Add: place · Delete: erase · Move: drag" : this.message.get_text();
 		this.removeChildren();
 		this.controls.h = Object.create(null);
 		this.get_graphics().clear();
@@ -8747,12 +9287,18 @@ SceneryEditor.prototype = $extend(openfl_display_Sprite.prototype,{
 			_gthis.snapToGrid = !_gthis.snapToGrid;
 			_gthis.rebuild();
 		},this.snapToGrid);
-		this.button("erase","Eraser",12,106,88,function() {
-			_gthis.selected = "erase";
-			_gthis.rebuild();
-		},this.selected == "erase");
+		var third = (this.panelWidth - 36) / 3 | 0;
+		this.button("mode:add","Add",12,106,third,function() {
+			_gthis.setMode("add");
+		},this.mode == "add");
+		this.button("erase","Delete",18 + third,106,third,function() {
+			_gthis.setMode("delete");
+		},this.mode == "delete");
+		this.button("mode:move","Move",24 + third * 2,106,third,function() {
+			_gthis.setMode("move");
+		},this.mode == "move");
 		var asset = EditorCatalog.get(this.selected);
-		var selection = this.text(this,this.selected == "erase" ? "Click an object to delete it" : asset == null ? "Choose an asset" : asset.title,108,107,this.panelWidth - 120,10);
+		var selection = this.text(this,this.selected == "erase" ? "Click an object to delete it" : asset == null ? "Choose an asset" : asset.title,12,141,this.panelWidth - 24,10);
 		selection.set_wordWrap(true);
 		selection.set_multiline(true);
 		var tabWidth = (this.panelWidth - 24) / 4 | 0;
@@ -8761,7 +9307,7 @@ SceneryEditor.prototype = $extend(openfl_display_Sprite.prototype,{
 		while(_g < _g1) {
 			var i = _g++;
 			var tab = [this.tabs[i]];
-			this.button("tab:" + tab[0],tab[0],12 + i * tabWidth,142,tabWidth - 3,(function(tab) {
+			this.button("tab:" + tab[0],tab[0],12 + i * tabWidth,174,tabWidth - 3,(function(tab) {
 				return function() {
 					_gthis.selectTab(tab[0]);
 				};
@@ -8846,6 +9392,7 @@ SceneryEditor.prototype = $extend(openfl_display_Sprite.prototype,{
 			this.cards.h[a[0].id] = card;
 			card.addEventListener("click",(function(a) {
 				return function(e) {
+					_gthis.mode = "add";
 					_gthis.selected = a[0].id;
 					_gthis.chosen.h[_gthis.activeTab] = a[0].id;
 					_gthis.rebuild();
@@ -8862,6 +9409,7 @@ SceneryEditor.prototype = $extend(openfl_display_Sprite.prototype,{
 		this.thumb.set_y(this.listTop + (max > 0 ? offset / max * (this.listHeight - height) : 0));
 	}
 	,toggle: function() {
+		this.cancelMove();
 		this.active = !this.active;
 		this.set_visible(this.active);
 		if(this.active) {
@@ -8919,6 +9467,14 @@ SceneryEditor.prototype = $extend(openfl_display_Sprite.prototype,{
 				this.message.set_text("Erased cloud");
 				return;
 			}
+		}
+		var cx = wx / 32 | 0;
+		var cy = wy / 32 | 0;
+		if(cx >= 0 && cy >= 0 && cx < 84 && cy < 60 && this.world.terrain.tiles[cy * 84 + cx] != "") {
+			this.world.terrain.tiles[cy * 84 + cx] = "";
+			this.world.terrainView.refresh(cx,cy);
+			this.message.set_text("Cleared terrain tile");
+			return;
 		}
 		this.message.set_text("No object here");
 	}
@@ -9102,7 +9658,7 @@ SceneryEditor.prototype = $extend(openfl_display_Sprite.prototype,{
 	,save: function() {
 		try {
 			window.localStorage.setItem("tinyswords-scenery",this.serialize());
-			this.message.set_text("Saved locally");
+			this.message.set_text("Saved in this browser · Starting map unchanged");
 		} catch( _g ) {
 			haxe_NativeStackTrace.lastError = _g;
 			this.message.set_text("Save failed");
@@ -9406,6 +9962,10 @@ var SheepAnimal = function(owner,index) {
 	this.walking = false;
 	this.neighbors = [];
 	this.worldSpace = false;
+	this.held = false;
+	this.hovered = false;
+	this.selected = false;
+	this.alive = true;
 	openfl_display_Sprite.call(this);
 	this.owner = owner;
 	this.seed = (owner.cellX * 73856093 ^ owner.cellY * 19349663 ^ (index + 1) * 83492791) & 2147483647;
@@ -9420,6 +9980,10 @@ var SheepAnimal = function(owner,index) {
 	this.homeY = owner.get_y() + this.get_y();
 	this.body = new openfl_display_Bitmap(this.grass[0],0,false);
 	this.addChild(this.body);
+	this.selection = Art.image("cursor-4");
+	this.selection.set_x(-32);
+	this.selection.set_y(-44);
+	this.addChild(this.selection);
 	this.mouseEnabled = this.mouseChildren = false;
 	this.update(0);
 };
@@ -9459,7 +10023,7 @@ SheepAnimal.prototype = $extend(openfl_display_Sprite.prototype,{
 		this.timer = 0.5 + this.random() * 3;
 	}
 	,containsPoint: function(wx,wy) {
-		if(!this.get_visible()) {
+		if(!this.alive || !this.get_visible()) {
 			return false;
 		}
 		var px = (wx - this.groundX() - this.body.get_x()) / this.body.get_scaleX() | 0;
@@ -9471,8 +10035,9 @@ SheepAnimal.prototype = $extend(openfl_display_Sprite.prototype,{
 		}
 	}
 	,update: function(dt) {
+		this.selection.set_visible(this.alive && (this.selected || this.hovered));
 		this.clock += dt;
-		if(this.get_visible() && dt > 0) {
+		if(this.alive && this.get_visible() && dt > 0 && !this.held) {
 			this.timer -= dt;
 			if(!this.walking && this.timer <= 0) {
 				this.targetX = this.homeX + (this.random() * 2 - 1) * 6;
@@ -9664,6 +10229,14 @@ var Terrain = function(width,height) {
 	this.width = width;
 	this.height = height;
 	this.navigation = new Navigation(width,height);
+	var _g = [];
+	var _g1 = 0;
+	var _g2 = width * height;
+	while(_g1 < _g2) {
+		var _ = _g1++;
+		_g.push("");
+	}
+	this.tiles = _g;
 	var _g = [];
 	var _g1 = 0;
 	var _g2 = width * height;
@@ -10112,6 +10685,12 @@ TerrainView.prototype = $extend(openfl_display_Sprite.prototype,{
 			var sy = !this.terrain.sameGround(x,y - 1,level) ? 0 : !this.terrain.sameGround(x,y + 1,level) ? 128 : 64;
 			this.ground.copyPixels(sheet,new openfl_geom_Rectangle(sx + (level > 0 ? 320 : 0),sy,this.tile,this.tile),new openfl_geom_Point(px,py));
 		}
+		var custom = EditorCatalog.get(this.terrain.tiles[i]);
+		if(custom != null) {
+			this.ground.fillRect(new openfl_geom_Rectangle(px,py,this.tile,this.tile),-12214614);
+			this.ground.copyPixels(EditorCatalog.frame(custom),new openfl_geom_Rectangle(0,0,64,64),new openfl_geom_Point(px,py),null,null,true);
+			return;
+		}
 		if(this.terrain.bridges[i]) {
 			this.ground.fillRect(new openfl_geom_Rectangle(px,py + 4,this.tile,this.tile - 8),-9876682);
 			var _g = 0;
@@ -10143,14 +10722,14 @@ TerrainView.prototype = $extend(openfl_display_Sprite.prototype,{
 		var _g = 20;
 		while(_g < 33) {
 			var y = _g++;
-			if(this.terrain.navigation.free(30,y) && !this.terrain.navigation.ramps[y * this.terrain.width + 30]) {
+			if(this.terrain.navigation.free(30,y) && this.terrain.tiles[y * this.terrain.width + 30] == "" && !this.terrain.navigation.ramps[y * this.terrain.width + 30]) {
 				this.roads.get_graphics().drawRect(965,y * 32,22,32);
 			}
 		}
 		var _g = 25;
 		while(_g < 39) {
 			var x = _g++;
-			if(this.terrain.navigation.free(x,25)) {
+			if(this.terrain.navigation.free(x,25) && this.terrain.tiles[25 * this.terrain.width + x] == "") {
 				this.roads.get_graphics().drawRect(x * 32,805,32,22);
 			}
 		}
@@ -10270,8 +10849,6 @@ var TransportSystem = function(world) {
 	this.wrecks = [];
 	this.error = "";
 	this.world = world;
-	this.addBoat(58,24);
-	this.addBoat(35,43);
 };
 $hxClasses["TransportSystem"] = TransportSystem;
 TransportSystem.__name__ = "TransportSystem";
@@ -10782,95 +11359,155 @@ UiSkin.bitmap = function(data,scale) {
 	if(scale == null) {
 		scale = 0.5;
 	}
-	var result = new openfl_display_Bitmap(data,0,false);
-	result.set_scaleX(result.set_scaleY(scale));
-	return result;
+	var b = new openfl_display_Bitmap(data,0,false);
+	b.set_scaleX(b.set_scaleY(scale));
+	return b;
+};
+UiSkin.piece = function(id,x,y,w,h) {
+	var key = id + ":" + x + ":" + y + ":" + w + ":" + h;
+	if(!Object.prototype.hasOwnProperty.call(UiSkin.pieces.h,key)) {
+		var data = new openfl_display_BitmapData(w,h,true,0);
+		data.copyPixels(Art.data(id),new openfl_geom_Rectangle(x,y,w,h),new openfl_geom_Point());
+		UiSkin.pieces.h[key] = data;
+	}
+	return UiSkin.pieces.h[key];
 };
 UiSkin.banner = function(id,width) {
-	var key = id + "-banner";
-	if(!Object.prototype.hasOwnProperty.call(UiSkin.tiles.h,key)) {
-		var data = Art.data(id);
-		var result = new openfl_display_BitmapData(data.width,128,true,0);
-		result.copyPixels(data,new openfl_geom_Rectangle(0,0,data.width,128),new openfl_geom_Point());
-		UiSkin.tiles.h[key] = result;
+	var key = id + ":banner:" + width;
+	if(Object.prototype.hasOwnProperty.call(UiSkin.pieces.h,key)) {
+		return UiSkin.pieces.h[key];
 	}
-	return UiSkin.tiles.h[key];
-};
-UiSkin.icon = function(parent,id,x,y,size) {
-	var data = Art.data(id);
-	var result = UiSkin.bitmap(data,size / Math.max(data.width,data.height));
-	result.set_x(x);
-	result.set_y(y);
-	parent.addChild(result);
+	var result = new openfl_display_BitmapData(width * 2,128,true,0);
+	var source = Art.data(id);
+	result.copyPixels(source,new openfl_geom_Rectangle(0,0,128,128),new openfl_geom_Point());
+	var x = 128;
+	while(x < width * 2 - 128) {
+		var amount = Math.min(64,width * 2 - 128 - x) | 0;
+		result.copyPixels(source,new openfl_geom_Rectangle(192,0,amount,128),new openfl_geom_Point(x,0));
+		x += amount;
+	}
+	result.copyPixels(source,new openfl_geom_Rectangle(320,0,128,128),new openfl_geom_Point(width * 2 - 128,0));
+	UiSkin.pieces.h[key] = result;
 	return result;
 };
-UiSkin.panel = function(parent,kind,x,y,w,h) {
-	var id = kind == "wood" ? "ui-wood" : kind == "paper" ? "ui-paper" : kind == "pressed" ? "ui-button-pressed" : "ui-button";
-	var data = Art.data(id);
-	var size = kind == "wood" ? 128 : 64;
-	var positions = kind == "wood" ? [0,192,320] : [0,128,256];
-	var sizes = kind == "wood" ? [128,64,128] : [64,64,64];
-	var scale = kind == "wood" ? 0.25 : 0.5;
-	var edge = Math.min(size * scale,Math.min(w / 2,h / 2));
-	var xs = [x,x + edge,x + w - edge];
-	var ys = [y,y + edge,y + h - edge];
-	var widths = [edge,Math.max(0,w - 2 * edge),edge];
-	var heights = [edge,Math.max(0,h - 2 * edge),edge];
+UiSkin.surface = function(style,width,height) {
+	var key = style + ":" + width + ":" + height;
+	if(Object.prototype.hasOwnProperty.call(UiSkin.surfaces.h,key)) {
+		return UiSkin.surfaces.h[key];
+	}
+	var wood = style == "wood";
+	var button = style == "button" || style == "pressed";
+	var sheet = Art.data(wood ? "ui-wood" : button ? style == "pressed" ? "ui-button-pressed" : "ui-button" : "ui-paper");
+	var cap = wood ? 64 : 32;
+	var positions = wood ? [32,192,352] : button ? [16,128,272] : [0,136,288];
+	var sizes = [cap,wood || button ? 64 : 48,cap];
+	var w = width * 2;
+	var h = height * 2;
+	var widths_0 = cap;
+	var widths_1 = w - cap * 2;
+	var widths_2 = cap;
+	var heights = [cap,h - cap * 2,cap];
+	var xs_0 = 0;
+	var xs_1 = cap;
+	var xs_2 = w - cap;
+	var ys = [0,cap,h - cap];
+	var result = new openfl_display_BitmapData(w,h,true,0);
 	var _g = 0;
 	while(_g < 3) {
 		var row = _g++;
-		var _g1 = 0;
-		while(_g1 < 3) {
-			var col = _g1++;
-			if(widths[col] <= 0 || heights[row] <= 0) {
-				continue;
+		var dy = 0;
+		while(dy < heights[row]) {
+			var dh = Math.min(sizes[row],heights[row] - dy) | 0;
+			var dx = 0;
+			while(dx < widths_0) {
+				var dw = Math.min(sizes[0],widths_0 - dx) | 0;
+				result.copyPixels(sheet,new openfl_geom_Rectangle(positions[0],positions[row],dw,dh),new openfl_geom_Point(xs_0 + dx,ys[row] + dy));
+				dx += dw;
 			}
-			var key = id + "-" + row + "-" + col;
-			if(!Object.prototype.hasOwnProperty.call(UiSkin.tiles.h,key)) {
-				var tile = new openfl_display_BitmapData(sizes[col],sizes[row],true,0);
-				tile.copyPixels(data,new openfl_geom_Rectangle(positions[col],positions[row],sizes[col],sizes[row]),new openfl_geom_Point());
-				UiSkin.tiles.h[key] = tile;
+			dy += dh;
+		}
+		var dy1 = 0;
+		while(dy1 < heights[row]) {
+			var dh1 = Math.min(sizes[row],heights[row] - dy1) | 0;
+			var dx1 = 0;
+			while(dx1 < widths_1) {
+				var dw1 = Math.min(sizes[1],widths_1 - dx1) | 0;
+				result.copyPixels(sheet,new openfl_geom_Rectangle(positions[1],positions[row],dw1,dh1),new openfl_geom_Point(xs_1 + dx1,ys[row] + dy1));
+				dx1 += dw1;
 			}
-			var matrix = new openfl_geom_Matrix();
-			matrix.scale(scale,scale);
-			matrix.translate(xs[col],ys[row]);
-			var tmp = UiSkin.tiles.h[key];
-			parent.get_graphics().beginBitmapFill(tmp,matrix,true,false);
-			parent.get_graphics().drawRect(xs[col],ys[row],widths[col],heights[row]);
-			parent.get_graphics().endFill();
+			dy1 += dh1;
+		}
+		var dy2 = 0;
+		while(dy2 < heights[row]) {
+			var dh2 = Math.min(sizes[row],heights[row] - dy2) | 0;
+			var dx2 = 0;
+			while(dx2 < widths_2) {
+				var dw2 = Math.min(sizes[2],widths_2 - dx2) | 0;
+				result.copyPixels(sheet,new openfl_geom_Rectangle(positions[2],positions[row],dw2,dh2),new openfl_geom_Point(xs_2 + dx2,ys[row] + dy2));
+				dx2 += dw2;
+			}
+			dy2 += dh2;
 		}
 	}
+	UiSkin.surfaces.h[key] = result;
+	return result;
 };
-UiSkin.button = function(text,w,h,click,fontSize) {
-	if(fontSize == null) {
-		fontSize = 14;
+UiSkin.panel = function(parent,style,x,y,w,h) {
+	var b = UiSkin.bitmap(UiSkin.surface(style,Math.ceil(w),Math.ceil(h)));
+	b.set_x(x);
+	b.set_y(y);
+	parent.addChild(b);
+	return b;
+};
+UiSkin.icon = function(parent,id,x,y,size) {
+	if(size == null) {
+		size = 32;
+	}
+	var data = Art.data(id);
+	var b = UiSkin.bitmap(data,size / Math.max(data.width,data.height));
+	b.set_x(x);
+	b.set_y(y);
+	parent.addChild(b);
+	return b;
+};
+UiSkin.button = function(text,w,h,action,size) {
+	if(size == null) {
+		size = 16;
 	}
 	var result = new openfl_display_Sprite();
 	result.set_buttonMode(true);
-	UiSkin.panel(result,"button",0,0,w,h);
-	var label = new openfl_text_TextField();
-	label.set_defaultTextFormat(new openfl_text_TextFormat("_sans",fontSize,16772553,true,null,null,null,null,openfl_text_TextFormatAlign.fromString("center")));
-	label.set_text(text);
-	label.set_width(w);
-	label.set_height(fontSize + 12);
-	label.set_y((h - fontSize - 8) / 2);
-	label.set_selectable(false);
-	label.mouseEnabled = false;
-	result.addChild(label);
-	result.addEventListener("mouseDown",function(_) {
-		result.get_graphics().clear();
-		UiSkin.panel(result,"pressed",0,0,w,h);
-	});
-	result.addEventListener("mouseUp",function(_) {
-		result.get_graphics().clear();
-		UiSkin.panel(result,"button",0,0,w,h);
+	var normal = UiSkin.surface("button",w,h);
+	var pressed = UiSkin.surface("pressed",w,h);
+	var bg = UiSkin.bitmap(normal);
+	result.addChild(bg);
+	var caption = new openfl_text_TextField();
+	caption.set_defaultTextFormat(new openfl_text_TextFormat("_sans",size,16772553,true,null,null,null,null,openfl_text_TextFormatAlign.fromString("center")));
+	caption.set_text(text);
+	caption.set_width(w);
+	caption.set_height(size + 14);
+	caption.set_y(Math.round((h - size) / 2) - 3);
+	caption.set_selectable(false);
+	caption.mouseEnabled = false;
+	result.addChild(caption);
+	var baseline = caption.get_y();
+	result.addEventListener("mouseOver",function(_) {
+		result.set_alpha(0.92);
 	});
 	result.addEventListener("mouseOut",function(_) {
-		result.get_graphics().clear();
-		UiSkin.panel(result,"button",0,0,w,h);
+		result.set_alpha(1);
+		bg.set_bitmapData(normal);
+		caption.set_y(baseline);
+	});
+	result.addEventListener("mouseDown",function(_) {
+		bg.set_bitmapData(pressed);
+		caption.set_y(baseline + 2);
+	});
+	result.addEventListener("mouseUp",function(_) {
+		bg.set_bitmapData(normal);
+		caption.set_y(baseline);
 	});
 	result.addEventListener("click",function(_) {
-		click();
+		action();
 	});
 	return result;
 };
@@ -11352,199 +11989,6 @@ var World = function() {
 	this.projectileLayer.mouseEnabled = false;
 	this.projectileLayer.mouseChildren = false;
 	this.addChild(this.projectileLayer);
-	this.building("Castle",15,9,4,2);
-	this.building("House1",10,12,2,1);
-	this.building("House2",10,16,2,1);
-	this.building("Barracks",21,12,3,2);
-	this.building("Archery",23,17,3,2);
-	this.building("Tower",23,6,2,1);
-	var p_x = 6;
-	var p_y = 7;
-	p_x += 15;
-	p_y += 10;
-	this.addResource("Wood",p_x,p_y,180);
-	var p_x = 7;
-	var p_y = 8;
-	p_x += 15;
-	p_y += 10;
-	this.addResource("Wood",p_x,p_y,180);
-	var p_x = 6;
-	var p_y = 10;
-	p_x += 15;
-	p_y += 10;
-	this.addResource("Wood",p_x,p_y,180);
-	var p_x = 30;
-	var p_y = 20;
-	p_x += 15;
-	p_y += 10;
-	this.addResource("Wood",p_x,p_y,180);
-	var p_x = 32;
-	var p_y = 20;
-	p_x += 15;
-	p_y += 10;
-	this.addResource("Wood",p_x,p_y,180);
-	var p_x = 31;
-	var p_y = 22;
-	p_x += 15;
-	p_y += 10;
-	this.addResource("Wood",p_x,p_y,180);
-	var p_x = 34;
-	var p_y = 7;
-	p_x += 15;
-	p_y += 10;
-	this.addResource("Wood",p_x,p_y,180);
-	var p_x = 35;
-	var p_y = 9;
-	p_x += 15;
-	p_y += 10;
-	this.addResource("Wood",p_x,p_y,180);
-	var p_x = 7;
-	var p_y = 23;
-	p_x += 15;
-	p_y += 10;
-	this.addResource("Wood",p_x,p_y,180);
-	var p_x = 9;
-	var p_y = 24;
-	p_x += 15;
-	p_y += 10;
-	this.addResource("Wood",p_x,p_y,180);
-	var p_x = 18;
-	var p_y = 24;
-	p_x += 15;
-	p_y += 10;
-	this.addResource("Wood",p_x,p_y,180);
-	var p_x = 20;
-	var p_y = 25;
-	p_x += 15;
-	p_y += 10;
-	this.addResource("Wood",p_x,p_y,180);
-	var _g = 0;
-	while(_g < 60) {
-		var y = _g++;
-		var _g1 = 0;
-		while(_g1 < 84) {
-			var x = _g1++;
-			if(this.terrain.rocks[y * 84 + x]) {
-				this.addRock(x,y,(x + y) % 3);
-			}
-		}
-	}
-	var p_x = 44;
-	var p_y = 25;
-	if(this.navigation.free(p_x,p_y)) {
-		this.navigation.blocked[p_y * 84 + p_x] = true;
-		this.terrain.rocks[p_y * 84 + p_x] = true;
-		this.addRock(p_x,p_y,0);
-	}
-	var p_x = 45;
-	var p_y = 26;
-	if(this.navigation.free(p_x,p_y)) {
-		this.navigation.blocked[p_y * 84 + p_x] = true;
-		this.terrain.rocks[p_y * 84 + p_x] = true;
-		this.addRock(p_x,p_y,0);
-	}
-	var p_x = 27;
-	var p_y = 33;
-	if(this.navigation.free(p_x,p_y)) {
-		this.navigation.blocked[p_y * 84 + p_x] = true;
-		this.terrain.rocks[p_y * 84 + p_x] = true;
-		this.addRock(p_x,p_y,0);
-	}
-	var p_x = 49;
-	var p_y = 34;
-	if(this.navigation.free(p_x,p_y)) {
-		this.navigation.blocked[p_y * 84 + p_x] = true;
-		this.terrain.rocks[p_y * 84 + p_x] = true;
-		this.addRock(p_x,p_y,0);
-	}
-	var p_x = 12;
-	var p_y = 17;
-	this.addResource("Wood",p_x + 15,p_y + 10,180);
-	var p_x = 11;
-	var p_y = 19;
-	this.addResource("Wood",p_x + 15,p_y + 10,180);
-	var p_x = 20;
-	var p_y = 15;
-	this.addResource("Gold",p_x + 15,p_y + 10,300);
-	var p_x = 20;
-	var p_y = 17;
-	this.addResource("Gold",p_x + 15,p_y + 10,300);
-	var p_x = 19;
-	var p_y = 14;
-	this.addResource("Gold",p_x + 15,p_y + 10,300);
-	var p_x = 18;
-	var p_y = 18;
-	this.addResource("Food",p_x + 15,p_y + 10,100);
-	var p_x = 19;
-	var p_y = 19;
-	this.addResource("Food",p_x + 15,p_y + 10,100);
-	var p_x = 17;
-	var p_y = 19;
-	this.addResource("Food",p_x + 15,p_y + 10,100);
-	this.addResource("Gold",47,16,450);
-	this.addResource("Gold",10,19,450);
-	this.addResource("Wood",9,20,240);
-	this.addReferenceSettlement();
-	var _g = 0;
-	var _g1 = this.terrain.islands;
-	while(_g < _g1.length) {
-		var island = _g1[_g];
-		++_g;
-		var p_x = -3;
-		var p_y = -1;
-		this.addResource("Wood",island.x + p_x,island.y + p_y,180,"tree-pine",{ x : island.x, y : island.y});
-		var p_x1 = -2;
-		var p_y1 = -2;
-		this.addResource("Wood",island.x + p_x1,island.y + p_y1,180,"tree-pine",{ x : island.x, y : island.y});
-		var p_x2 = 2;
-		var p_y2 = -2;
-		this.addResource("Wood",island.x + p_x2,island.y + p_y2,180,"tree-pine",{ x : island.x, y : island.y});
-		var p_x3 = 3;
-		var p_y3 = -1;
-		this.addResource("Wood",island.x + p_x3,island.y + p_y3,180,"tree-pine",{ x : island.x, y : island.y});
-		this.addResource("Gold",island.x + 2,island.y + 1,500,"tree",{ x : island.x, y : island.y});
-		this.addResource("Food",island.x - 2,island.y + 2,100,"tree",{ x : island.x, y : island.y});
-		this.addScenery("scenery-bush-" + 1,island.x - 3,island.y + 3);
-		this.addScenery("scenery-bush-" + 2,island.x - 3 + 2,island.y + 3);
-		this.addScenery("scenery-bush-" + 3,island.x - 3 + 4,island.y + 3);
-	}
-	this.spawn("Peasant",14,14);
-	this.spawn("Peasant",15,14);
-	this.spawn("Peasant",14,15);
-	this.spawn("Peasant",15,15);
-	this.spawn("Swordsman",17,14);
-	this.spawn("Archer",18,15);
-	this.building("House1",36,-3,2,1,false,true);
-	this.building("House2",38,0,2,1,false,true);
-	this.building("Goblin Hut",32,-4,3,2,false,false,true);
-	this.building("Goblin Hut",28,28,3,2,false,false,true);
-	this.building("Fish Hut",-12,6,2,1,false,false,true);
-	this.building("Fish Hut",41,29,2,1,false,false,true);
-	this.addScenery("scenery-bush-" + 1,23,20);
-	this.addScenery("scenery-rock-" + 1,8,37);
-	this.addScenery("scenery-bush-" + 2,25,20);
-	this.addScenery("scenery-rock-" + 2,10,37);
-	this.addScenery("scenery-bush-" + 3,27,20);
-	this.addScenery("scenery-rock-" + 3,12,37);
-	this.addScenery("scenery-bush-" + 4,29,20);
-	this.addScenery("scenery-rock-" + 4,14,37);
-	var duckCount = 0;
-	var _g = 10;
-	var _g1 = 55;
-	while(_g < _g1) {
-		var y = _g++;
-		var _g2 = 4;
-		var _g3 = 80;
-		while(_g2 < _g3) {
-			var x = _g2++;
-			if(this.terrain.water[y * 84 + x] && (x * 7 + y * 11) % 79 == 0 && duckCount < 12) {
-				this.addScenery(duckCount % 2 == 0 ? "duck-1" : "scenery-water-" + (duckCount % 4 + 1),x,y);
-				++duckCount;
-			}
-		}
-	}
-	this.addFortifications();
-	this.configureHerds();
 	this.bot = new BotAI(this);
 	this.sea = new SeaNavigation(this.terrain);
 	var _g = 0;
@@ -11893,6 +12337,7 @@ World.prototype = $extend(openfl_display_Sprite.prototype,{
 		this.resources.push(node);
 		this.objects.addChild(node);
 		this.navigation.blocked[cy * 84 + cx] = true;
+		this.configureHerds();
 	}
 	,addReferenceSettlement: function() {
 		this.building("Castle",-8,22,4,2,false);
@@ -12277,6 +12722,19 @@ World.prototype = $extend(openfl_display_Sprite.prototype,{
 			}
 		}
 	}
+	,sheepAt: function(wx,wy) {
+		var best = null;
+		var _g = 0;
+		var _g1 = this.grazingSheep;
+		while(_g < _g1.length) {
+			var s = _g1[_g];
+			++_g;
+			if(s.containsPoint(wx,wy) && (best == null || s.groundY() > best.groundY())) {
+				best = s;
+			}
+		}
+		return best;
+	}
 	,resourceAt: function(wx,wy) {
 		var best = null;
 		var depth = -Infinity;
@@ -12318,6 +12776,7 @@ World.prototype = $extend(openfl_display_Sprite.prototype,{
 		u.attackTarget = null;
 		u.repathTimer = 0;
 		u.task = "idle";
+		u.sheepTarget = null;
 		u.resourceTarget = null;
 		u.workCell = null;
 		u.gatherTimer = 0;
@@ -12342,7 +12801,9 @@ World.prototype = $extend(openfl_display_Sprite.prototype,{
 		}
 		return true;
 	}
-	,workSpot: function(u,node) {
+	,workSpot: function(u,node,animal) {
+		var nx = animal == null ? node.cellX : animal.groundX() / 32 | 0;
+		var ny = animal == null ? node.cellY : animal.groundY() / 32 | 0;
 		var best = null;
 		var shortest = 2147483647;
 		var sx = u.get_x() / 32 | 0;
@@ -12356,9 +12817,9 @@ World.prototype = $extend(openfl_display_Sprite.prototype,{
 				if(dx == 0 && dy == 0) {
 					continue;
 				}
-				var cx = node.cellX + dx;
-				var cy = node.cellY + dy;
-				if(!this.navigation.free(cx,cy) || this.navigation.elevation[cy * 84 + cx] != this.navigation.elevation[node.cellY * 84 + node.cellX]) {
+				var cx = nx + dx;
+				var cy = ny + dy;
+				if(!this.navigation.free(cx,cy) || this.navigation.elevation[cy * 84 + cx] != this.navigation.elevation[ny * 84 + nx]) {
 					continue;
 				}
 				var occupied = false;
@@ -12383,16 +12844,77 @@ World.prototype = $extend(openfl_display_Sprite.prototype,{
 		}
 		return best;
 	}
-	,gather: function(u,node) {
+	,chooseSheep: function(u,node,preferred) {
+		var _g = [];
+		var _g1 = 0;
+		var _g2 = node.sheep;
+		while(_g1 < _g2.length) {
+			var s = _g2[_g1];
+			++_g1;
+			var tmp;
+			if(s.alive) {
+				var _g3 = [];
+				var _g4 = 0;
+				var _g5 = this.allUnits();
+				while(_g4 < _g5.length) {
+					var other = _g5[_g4];
+					++_g4;
+					if(other != u && other.sheepTarget == s) {
+						_g3.push(other);
+					}
+				}
+				tmp = _g3.length == 0;
+			} else {
+				tmp = false;
+			}
+			if(tmp) {
+				_g.push(s);
+			}
+		}
+		var candidates = _g;
+		candidates.sort(function(a,b) {
+			return openfl_geom_Point.distance(new openfl_geom_Point(u.get_x(),u.get_y()),new openfl_geom_Point(a.groundX(),a.groundY())) - openfl_geom_Point.distance(new openfl_geom_Point(u.get_x(),u.get_y()),new openfl_geom_Point(b.groundX(),b.groundY())) | 0;
+		});
+		if(preferred != null && HxOverrides.remove(candidates,preferred)) {
+			candidates.unshift(preferred);
+		}
+		var _g = 0;
+		while(_g < candidates.length) {
+			var s = candidates[_g];
+			++_g;
+			if(this.workSpot(u,node,s) != null) {
+				return s;
+			}
+		}
+		return null;
+	}
+	,resumeGathering: function(u,preferred) {
+		var node = u.resourceTarget;
+		if(node == null) {
+			return false;
+		}
+		u.sheepTarget = node.kind == "Food" ? this.chooseSheep(u,node,preferred) : null;
+		var spot = this.workSpot(u,node,u.sheepTarget);
+		if(spot == null || !this.routeTo(u,spot)) {
+			return false;
+		}
+		u.workCell = spot;
+		u.task = "toResource";
+		u.gatherTimer = 0;
+		return true;
+	}
+	,gather: function(u,node,animal) {
 		if(u.neutral || u.get_dead() || u.transport != null || this.allUnits().indexOf(u) < 0 || u.kind != "Peasant" || node.get_depleted() && !node.get_renewable()) {
 			return false;
 		}
-		var spot = this.workSpot(u,node);
+		var sheep = node.kind == "Food" ? this.chooseSheep(u,node,animal) : null;
+		var spot = this.workSpot(u,node,sheep);
 		if(spot == null) {
 			return false;
 		}
 		this.cancelTask(u);
 		u.resourceTarget = node;
+		u.sheepTarget = sheep;
 		u.workCell = spot;
 		if(u.cargoAmount > 0) {
 			return this.returnCargo(u,false);
@@ -12417,6 +12939,7 @@ World.prototype = $extend(openfl_display_Sprite.prototype,{
 			return false;
 		}
 		if(stopAfter) {
+			u.sheepTarget = null;
 			u.resourceTarget = null;
 			u.workCell = null;
 		}
@@ -12440,7 +12963,7 @@ World.prototype = $extend(openfl_display_Sprite.prototype,{
 			bank.h[u.cargoKind] += u.cargoAmount;
 			u.cargoAmount = 0;
 			u.cargoKind = "";
-			if(u.resourceTarget != null && (!u.resourceTarget.get_depleted() || u.resourceTarget.get_renewable()) && u.workCell != null && this.routeTo(u,u.workCell)) {
+			if(u.resourceTarget != null && (!u.resourceTarget.get_depleted() || u.resourceTarget.get_renewable()) && this.resumeGathering(u)) {
 				u.task = "toResource";
 			} else {
 				this.cancelTask(u);
@@ -12450,6 +12973,10 @@ World.prototype = $extend(openfl_display_Sprite.prototype,{
 		} else if(u.resourceTarget.get_depleted()) {
 			u.task = "toResource";
 			u.gatherTimer = 0;
+		} else if(u.resourceTarget.kind == "Food" && (u.sheepTarget == null || !u.sheepTarget.alive || openfl_geom_Point.distance(new openfl_geom_Point(u.get_x(),u.get_y()),new openfl_geom_Point(u.sheepTarget.groundX(),u.sheepTarget.groundY())) > 60)) {
+			if(!this.resumeGathering(u)) {
+				this.cancelTask(u);
+			}
 		} else if(u.task == "toResource") {
 			u.task = "gathering";
 			u.gatherTimer = 0;
@@ -12460,7 +12987,8 @@ World.prototype = $extend(openfl_display_Sprite.prototype,{
 			}
 			var node = u.resourceTarget;
 			u.cargoKind = node.kind;
-			u.cargoAmount = node.take(10);
+			u.cargoAmount = node.take(10,u.sheepTarget);
+			u.sheepTarget = null;
 			u.gatherTimer = 0;
 			if(node.get_depleted() && !node.get_renewable()) {
 				this.navigation.blocked[node.cellY * 84 + node.cellX] = false;
@@ -13126,6 +13654,22 @@ World.prototype = $extend(openfl_display_Sprite.prototype,{
 			if(s.worldSpace && !this.navigation.free(s.homeX / 32 | 0,s.homeY / 32 | 0)) {
 				this.configureHerds();
 				break;
+			}
+		}
+		var _g = 0;
+		var _g1 = this.grazingSheep;
+		while(_g < _g1.length) {
+			var s = _g1[_g];
+			++_g;
+			s.held = false;
+		}
+		var _g = 0;
+		var _g1 = this.allUnits();
+		while(_g < _g1.length) {
+			var u = _g1[_g];
+			++_g;
+			if(u.sheepTarget != null && (u.task == "toResource" || u.task == "gathering")) {
+				u.sheepTarget.held = true;
 			}
 		}
 		var _g = 0;
@@ -34439,7 +34983,7 @@ var lime_utils_AssetCache = function() {
 	this.audio = new haxe_ds_StringMap();
 	this.font = new haxe_ds_StringMap();
 	this.image = new haxe_ds_StringMap();
-	this.version = 566668;
+	this.version = 12361;
 };
 $hxClasses["lime.utils.AssetCache"] = lime_utils_AssetCache;
 lime_utils_AssetCache.__name__ = "lime.utils.AssetCache";
@@ -90409,12 +90953,13 @@ Art.SCALE = 0.5;
 Art.cache = new haxe_ds_StringMap();
 BotAI.WORKER_LIMIT = 8;
 BotAI.POPULATION_LIMIT = 24;
+Combatant.hideHealthBars = false;
 Building.QUEUE_LIMIT = 5;
 Building.CAPACITY = 3;
 BuildingDeath.DURATION = 2.4;
 EditorCatalog.colors = ["Blue","Red","Yellow","Purple","Black"];
 EditorCatalog.images = new haxe_ds_StringMap();
-ExtraBuildings.all = [{ kind : "Gnome Hut", asset : "editor-extra-building-0", size : 128, height : 192, w : 2, h : 1, water : false},{ kind : "Gnome Tower", asset : "editor-extra-building-1", size : 128, height : 256, w : 2, h : 1, water : false},{ kind : "Cave", asset : "editor-extra-building-2", size : 192, height : 192, w : 3, h : 2, water : false},{ kind : "Pirate Tower", asset : "editor-extra-building-3", size : 128, height : 192, w : 2, h : 1, water : false},{ kind : "Pirate Water Tower", asset : "editor-extra-building-4", size : 192, height : 192, w : 2, h : 1, water : true},{ kind : "Cannon", asset : "editor-extra-building-5", size : 128, height : 128, w : 1, h : 1, water : false}];
+ExtraBuildings.all = [{ kind : "Gnome Hut", asset : "editor-extra-building-0", size : 128, height : 192, w : 2, h : 1, water : false},{ kind : "Gnome Tower", asset : "editor-extra-building-1", size : 128, height : 256, w : 2, h : 1, water : false},{ kind : "Cave", asset : "editor-extra-building-2", size : 192, height : 192, w : 3, h : 2, water : false},{ kind : "Pirate Tower", asset : "editor-extra-building-3", size : 128, height : 192, w : 2, h : 1, water : false},{ kind : "Pirate Water Tower", asset : "editor-extra-building-4", size : 128, height : 192, w : 2, h : 1, water : true},{ kind : "Cannon", asset : "editor-extra-building-5", size : 128, height : 128, w : 1, h : 1, water : false}];
 HealthBar.WIDTH = 72;
 HealthBar.HEIGHT = 20;
 HealthBar.FILL_WIDTH = 58;
@@ -90425,7 +90970,8 @@ Terrain.REGION_TOP = 29;
 Terrain.REGION_RIGHT = 26;
 Terrain.REGION_BOTTOM = 43;
 TransportBoat.CAPACITY = 4;
-UiSkin.tiles = new haxe_ds_StringMap();
+UiSkin.surfaces = new haxe_ds_StringMap();
+UiSkin.pieces = new haxe_ds_StringMap();
 Unit.EMPTY_BOAT_ASSET = "seahorse-boat/Seahorse Boat_Idle.png";
 Unit.BOAT_FRAME_SIZE = 192;
 Unit.BOAT_Y = -64;
