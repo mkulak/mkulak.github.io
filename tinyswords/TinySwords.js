@@ -1047,7 +1047,7 @@ ApplicationMain.main = function() {
 ApplicationMain.create = function(config) {
 	var app = new openfl_display_Application();
 	ManifestResources.init(config);
-	app.meta.h["build"] = "35";
+	app.meta.h["build"] = "36";
 	app.meta.h["company"] = "Tiny Swords";
 	app.meta.h["file"] = "TinySwords";
 	app.meta.h["name"] = "Tiny Swords";
@@ -3602,7 +3602,7 @@ openfl_display_Sprite.prototype = $extend(openfl_display_DisplayObjectContainer.
 	,__properties__: $extend(openfl_display_DisplayObjectContainer.prototype.__properties__,{get_graphics:"get_graphics",set_buttonMode:"set_buttonMode",get_buttonMode:"get_buttonMode"})
 });
 var Main = function() {
-	this.bottom = 114;
+	this.bottom = 226;
 	this.top = 0;
 	this.markerLife = 0;
 	this.keys = new haxe_ds_IntMap();
@@ -3732,7 +3732,6 @@ Main.prototype = $extend(openfl_display_Sprite.prototype,{
 		this.fullscreenRect = new openfl_geom_Rectangle(0,0,92,32);
 		this.bottomRect = new openfl_geom_Rectangle(0,h - this.bottom,Math.min(w * 0.4,w - 96),this.bottom);
 		this.hudWidth = this.bottomRect.width;
-		this.panel(this.hud,this.topRect.x,0,topWidth,36,4470574);
 		UiSkin.panel(this.hud,"wood",this.topRect.x,0,topWidth,36);
 		var full = UiSkin.button("Full screen",92,32,$bind(this,this.toggleFullscreen),11);
 		this.hud.addChild(full);
@@ -3783,16 +3782,7 @@ Main.prototype = $extend(openfl_display_Sprite.prototype,{
 		var this1 = this.resourceValues;
 		var value = this.label(this.hud,"0",x + 30,7,12,4798765,cardWidth - 34);
 		this1.h[kind] = value;
-		this.panel(this.hud,0,h - this.bottom,this.hudWidth,this.bottom,4470574);
-		UiSkin.panel(this.hud,"paper",0,h - this.bottom,this.hudWidth,this.bottom);
-		this.portrait = UiSkin.icon(this.hud,"ui-avatar-peasant",8,h - this.bottom + 12,48);
-		this.label(this.hud,"YOUR COMPANY",62,h - this.bottom + 10,10,8481605,this.hudWidth - 72);
-		this.status = this.label(this.hud,"",62,h - this.bottom + 26,13,4798765,this.hudWidth - 72);
-		this.resourceHint = this.label(this.hud,"",12,h - this.bottom + 62,10,8416074,this.hudWidth - 24);
-		this.resourceHint.set_multiline(true);
-		this.resourceHint.set_wordWrap(true);
-		this.resourceHint.set_height(30);
-		this.label(this.hud,this.hudWidth < 300 ? "Click: select · Right-click: order" : "Click / drag: select · Right-click: orders · WASD: scroll",12,h - 27,9,8416074,this.hudWidth - 24);
+		this.status = new openfl_text_TextField();
 		var mapSize = Math.min(80,Math.max(48,h * 0.1));
 		this.mapRect = new openfl_geom_Rectangle(w - mapSize - 6,h - mapSize - 6,mapSize,mapSize);
 		this.panel(this.hud,this.mapRect.x - 6,this.mapRect.y - 6,mapSize + 12,mapSize + 12,4470574);
@@ -3909,6 +3899,8 @@ Main.prototype = $extend(openfl_display_Sprite.prototype,{
 		}
 		this.editor.set_y(68);
 		this.addChild(this.editor);
+		this.selectedObject = null;
+		this.selectedSheep = null;
 		this.buildKind = null;
 		this.buildMenu = false;
 		this.buildWorker = null;
@@ -4011,6 +4003,7 @@ Main.prototype = $extend(openfl_display_Sprite.prototype,{
 		var box = new openfl_geom_Rectangle(Math.min(this.drag.x,end.x),Math.min(this.drag.y,end.y),Math.abs(end.x - this.drag.x),Math.abs(end.y - this.drag.y));
 		this.buildMenu = false;
 		this.buildKind = null;
+		this.selectedObject = null;
 		this.selectedSheep = null;
 		var _g = 0;
 		var _g1 = this.world.grazingSheep;
@@ -4089,6 +4082,22 @@ Main.prototype = $extend(openfl_display_Sprite.prototype,{
 						var u = _g1[_g];
 						++_g;
 						u.selected = false;
+					}
+				} else {
+					this.selectedObject = this.world.resourceAt(end.x,end.y);
+					if(this.selectedObject == null) {
+						var _g = 0;
+						var _g1 = this.world.scenery;
+						while(_g < _g1.length) {
+							var s = _g1[_g];
+							++_g;
+							if(s.containsPoint(end.x,end.y)) {
+								this.selectedObject = s;
+							}
+						}
+					}
+					if(this.selectedObject == null) {
+						this.selectedObject = this.world.slopeAt(end.x,end.y);
 					}
 				}
 			}
@@ -4381,6 +4390,7 @@ Main.prototype = $extend(openfl_display_Sprite.prototype,{
 			this.updateActions();
 		}
 		if(this.playing && e.keyCode == 27) {
+			this.selectedObject = null;
 			this.selectedSheep = null;
 			var _g = 0;
 			var _g1 = this.world.grazingSheep;
@@ -4411,6 +4421,7 @@ Main.prototype = $extend(openfl_display_Sprite.prototype,{
 			this.updateStatus();
 		}
 		if(this.playing && e.keyCode == 65 && (e.ctrlKey || e.commandKey)) {
+			this.selectedObject = null;
 			this.selectedSheep = null;
 			var _g = 0;
 			var _g1 = this.world.grazingSheep;
@@ -4470,6 +4481,7 @@ Main.prototype = $extend(openfl_display_Sprite.prototype,{
 			this.status.set_text("No available transport boats");
 			return;
 		}
+		this.selectedObject = null;
 		this.selectedSheep = null;
 		var _g = 0;
 		var _g1 = this.world.grazingSheep;
@@ -4591,20 +4603,39 @@ Main.prototype = $extend(openfl_display_Sprite.prototype,{
 			}
 		}
 		var selected = _g;
-		if(this.portrait != null) {
-			this.portrait.set_bitmapData(Art.data(selected.length == 1 && selected[0].kind == "Archer" ? "ui-avatar-archer" : selected.length == 1 && selected[0].kind == "Swordsman" ? "ui-avatar-swordsman" : "ui-avatar-peasant"));
-		}
+		this.status.set_text(this.selectionName(selected));
+	}
+	,selectionName: function(selected) {
 		if(this.selectedSheep != null) {
-			this.portrait.set_bitmapData(Art.frames("sheep-idle",128)[0]);
-			this.status.set_text("Sheep · 10 food · Peasants return for more sheep");
-			return;
+			return "Sheep";
 		}
-		if(this.selectedBoat != null) {
-			this.portrait.set_bitmapData(Art.frames("player-boat",256)[0]);
-			this.status.set_text(this.selectedBoat.team == "Neutral" ? "Neutral boat · Board to control" : this.selectedBoat.team + " boat · " + this.selectedBoat.passengers.length + "/" + this.selectedBoat.capacity + " aboard");
-			return;
+		if(((this.selectedObject) instanceof ResourceNode)) {
+			var r = this.selectedObject;
+			if(r.kind == "Wood") {
+				if(r.get_depleted()) {
+					return "Tree stump";
+				} else {
+					return "Tree";
+				}
+			} else if(r.kind == "Gold") {
+				return "Gold deposit";
+			} else {
+				return "Sheep herd";
+			}
 		}
-		this.status.set_text(selected.length == 0 ? "Select units" : selected.length == 1 ? selected[0].kind + " selected" : selected.length + " units selected");
+		if(((this.selectedObject) instanceof Scenery)) {
+			return Scenery.title(this.selectedObject.id);
+		}
+		if(((this.selectedObject) instanceof SlopeOverlay)) {
+			return "Slope";
+		}
+		if(selected.length == 0) {
+			return "";
+		} else if(selected.length == 1) {
+			return selected[0].kind;
+		} else {
+			return selected.length + " units";
+		}
 	}
 	,updateProductionPanel: function() {
 		if(this.productionPanel == null) {
@@ -4716,7 +4747,7 @@ Main.prototype = $extend(openfl_display_Sprite.prototype,{
 			}
 		}
 		var selected = _g;
-		this.actionsPanel.set_visible(this.selectedBuilding == null && (selected.length > 0 || this.selectedBoat != null));
+		this.actionsPanel.set_visible(this.selectedBuilding == null);
 		this.bottomRect.y = this.stage.stageHeight - this.bottom;
 		this.bottomRect.height = this.bottom;
 		if(!this.actionsPanel.get_visible()) {
@@ -4762,10 +4793,8 @@ Main.prototype = $extend(openfl_display_Sprite.prototype,{
 			var kinds = ["Tower","House1","Barracks","Archery","Castle","Church"];
 			var columns = Math.max(1,Math.min(kinds.length,Math.floor((this.hudWidth - 20) / 76))) | 0;
 			var rows = Math.ceil(kinds.length / columns) | 0;
-			var height = Math.max(this.bottom,32 + rows * 72 + 10) | 0;
-			this.actionsPanel.set_y(this.stage.stageHeight - height);
-			this.bottomRect.y = this.actionsPanel.get_y();
-			this.bottomRect.height = height;
+			var height = this.bottom;
+			var cardHeight = Math.min(68,(this.bottom - 46) / rows - 4) | 0;
 			ActionUi.heading(this.actionsPanel,"CONSTRUCTION",this.hudWidth | 0,height);
 			var width = (this.hudWidth - 24 - (columns - 1) * 4) / columns | 0;
 			var _g = 0;
@@ -4778,7 +4807,7 @@ Main.prototype = $extend(openfl_display_Sprite.prototype,{
 				if(cost.gold > 0) {
 					prices.push({ kind : "Gold", amount : cost.gold});
 				}
-				var button = this.actionIcon("build:" + kind[0],"building:Blue:" + kind[0],12 + i % columns * (width + 4),32 + (i / columns | 0) * 72,width,68,prices,kind[0] == "House1" ? "House" : kind[0],(function(kind) {
+				var button = this.actionIcon("build:" + kind[0],"building:Blue:" + kind[0],12 + i % columns * (width + 4),32 + (i / columns | 0) * (cardHeight + 4),width,cardHeight,prices,kind[0] == "House1" ? "House" : kind[0],(function(kind) {
 					return function() {
 						_gthis.buildKind = kind[0];
 						_gthis.buildWorker = peasants[0];
@@ -4791,11 +4820,14 @@ Main.prototype = $extend(openfl_display_Sprite.prototype,{
 			this.actionHint.set_height(14);
 			return;
 		}
-		ActionUi.heading(this.actionsPanel,this.buildKind != null ? "PLACE " + this.buildKind.toUpperCase() : "ACTIONS · " + selected.length + " selected",this.hudWidth | 0,this.bottom);
+		ActionUi.heading(this.actionsPanel,this.buildKind != null ? "PLACE " + this.buildKind.toUpperCase() : this.selectionName(selected),this.hudWidth | 0,this.bottom);
 		if(this.buildKind != null) {
 			var hint = this.label(this.actionsPanel,"Click clear land to construct.\nRight-click / Escape to cancel.",12,36,10,16772553,this.hudWidth - 24);
 			hint.set_wordWrap(hint.set_multiline(true));
 			hint.set_height(52);
+			return;
+		}
+		if(selected.length == 0) {
 			return;
 		}
 		var x = 12;
@@ -4878,6 +4910,7 @@ Main.prototype = $extend(openfl_display_Sprite.prototype,{
 		}
 		if(this.editorRevision != this.editor.revision) {
 			this.editorRevision = this.editor.revision;
+			this.selectedObject = null;
 			this.selectedSheep = null;
 			this.selectedBuilding = null;
 			this.selectedBoat = null;
@@ -4951,7 +4984,7 @@ Main.prototype = $extend(openfl_display_Sprite.prototype,{
 			this.sceneryPreview.set_y(this.editor.placementY(this.pointerY + this.cameraY) - this.cameraY);
 		}
 		this.clouds.set_visible(this.playing);
-		this.clouds.update(this.playing ? dt : 0);
+		this.clouds.update(this.playing ? dt : 0,this.cameraX,this.cameraY);
 		var _g = [];
 		var _g1 = 0;
 		var _g2 = this.world.boats;
@@ -4981,7 +5014,7 @@ Main.prototype = $extend(openfl_display_Sprite.prototype,{
 		while(_g < _g1.length) {
 			var r = _g1[_g];
 			++_g;
-			r.hovered = r == hovered && r.kind != "Food";
+			r.hovered = (r == hovered || r == this.selectedObject) && r.kind != "Food";
 		}
 		var hoveredSheep = this.playing && this.pointerInside && this.inMap(this.pointerX,this.pointerY) ? this.world.sheepAt(this.pointerX + this.cameraX,this.pointerY + this.cameraY) : null;
 		var _g = 0;
@@ -4991,6 +5024,10 @@ Main.prototype = $extend(openfl_display_Sprite.prototype,{
 			++_g;
 			s.hovered = s == hoveredSheep;
 			s.selected = s == this.selectedSheep && s.alive;
+		}
+		if(this.selectedObject != null && this.selectedObject.parent == null) {
+			this.selectedObject = null;
+			this.updateStatus();
 		}
 		if(this.selectedSheep != null && !this.selectedSheep.alive) {
 			this.selectedSheep = null;
@@ -5045,29 +5082,6 @@ Main.prototype = $extend(openfl_display_Sprite.prototype,{
 		this.resourceValues.h[kind].set_text(Std.string(this.world.stock.h[kind]));
 		var kind = "Food";
 		this.resourceValues.h[kind].set_text(Std.string(this.world.stock.h[kind]));
-		if(hovered != null) {
-			this.resourceHint.set_text((hovered.kind == "Food" ? "Sheep · 10 food · Gather repeats with new sheep" : hovered.kind == "Wood" ? hovered.get_depleted() ? "Stump · Regrows in " + Math.ceil(10 - hovered.regrowTimer) + "s" : "Tree · One wood load · Regrows 10s after felling" : "Gold · " + hovered.amount + " remaining") + " · Right-click with peasants to gather");
-		} else {
-			var _g = [];
-			var _g1 = 0;
-			var _g2 = this.world.units;
-			while(_g1 < _g2.length) {
-				var u = _g2[_g1];
-				++_g1;
-				if(u.cargoAmount > 0) {
-					_g.push(u.cargoAmount);
-				}
-			}
-			var loads = _g;
-			var inTransit = 0;
-			var _g = 0;
-			while(_g < loads.length) {
-				var load = loads[_g];
-				++_g;
-				inTransit += load;
-			}
-			this.resourceHint.set_text(inTransit > 0 ? inTransit + " resources carried · Added to totals on delivery" : "Sheep provide food · " + this.world.enemies.length + " red · " + this.world.monsters.length + " monsters · Bot: " + this.world.bot.phase);
-		}
 	}
 	,drawMinimap: function() {
 		if(this.minimap == null) {
@@ -6376,15 +6390,23 @@ BridgeArt.data = function(orientation) {
 		var cell = sheet.width / 2 | 0;
 		var frame = new openfl_display_BitmapData(64,64,true,0);
 		var matrix = new openfl_geom_Matrix();
-		matrix.scale(64 / cell,64 / sheet.height);
-		matrix.translate(0,0);
-		frame.draw(sheet,matrix,null,null,new openfl_geom_Rectangle(0,0,64,64),false);
+		var source = new openfl_display_BitmapData(cell,sheet.height,true,0);
+		source.copyPixels(sheet,new openfl_geom_Rectangle(0 * cell,0,cell,sheet.height),new openfl_geom_Point());
+		var bounds = source.getColorBoundsRect(-536870912,0,false);
+		matrix.scale(64 / cell,60 / bounds.height);
+		matrix.translate(0,2 - bounds.y * 60 / bounds.height);
+		frame.draw(source,matrix,null,null,new openfl_geom_Rectangle(0,0,64,64),false);
+		source.dispose();
 		BridgeArt.frames.push(frame);
 		var frame = new openfl_display_BitmapData(64,64,true,0);
 		var matrix = new openfl_geom_Matrix();
-		matrix.scale(64 / cell,64 / sheet.height);
-		matrix.translate(-64,0);
-		frame.draw(sheet,matrix,null,null,new openfl_geom_Rectangle(0,0,64,64),false);
+		var source = new openfl_display_BitmapData(cell,sheet.height,true,0);
+		source.copyPixels(sheet,new openfl_geom_Rectangle(cell,0,cell,sheet.height),new openfl_geom_Point());
+		var bounds = source.getColorBoundsRect(-536870912,0,false);
+		matrix.scale(60 / bounds.width,64 / sheet.height);
+		matrix.translate(2 - bounds.x * 60 / bounds.width,0);
+		frame.draw(source,matrix,null,null,new openfl_geom_Rectangle(0,0,64,64),false);
+		source.dispose();
 		BridgeArt.frames.push(frame);
 	}
 	return BridgeArt.frames[orientation == 1 ? 1 : 0];
@@ -6775,8 +6797,8 @@ CloudLayer.prototype = $extend(openfl_display_Sprite.prototype,{
 		this.position(this.clouds[this.clouds.length - 1],wx,wy,cameraX,cameraY);
 	}
 	,position: function(c,wx,wy,cameraX,cameraY) {
-		var px = wx - cameraX - this.drift;
-		var py = wy - cameraY;
+		var px = wx - this.drift;
+		var py = wy;
 		c.cx = Math.floor(px / 32) | 0;
 		c.cy = Math.floor(py / 32) | 0;
 		c.offsetX = px - c.cx * 32;
@@ -6792,7 +6814,13 @@ CloudLayer.prototype = $extend(openfl_display_Sprite.prototype,{
 		}
 		this.clouds = [];
 	}
-	,update: function(dt) {
+	,update: function(dt,cameraX,cameraY) {
+		if(cameraY == null) {
+			cameraY = 0;
+		}
+		if(cameraX == null) {
+			cameraX = 0;
+		}
 		this.drift += dt * 12;
 		var _g = 0;
 		var _g1 = this.clouds;
@@ -6800,8 +6828,8 @@ CloudLayer.prototype = $extend(openfl_display_Sprite.prototype,{
 			var c = _g1[_g];
 			++_g;
 			var span = 3288;
-			c.set_x(((c.cx * 32 + c.offsetX + this.drift + 300) % span + span) % span - 300);
-			c.set_y(c.cy * 32 + c.offsetY);
+			c.set_x(((c.cx * 32 + c.offsetX + this.drift + 300) % span + span) % span - 300 - cameraX);
+			c.set_y(c.cy * 32 + c.offsetY - cameraY);
 		}
 	}
 	,__class__: CloudLayer
@@ -6927,6 +6955,11 @@ EditorCatalog.init = function() {
 	var a = new EditorAsset("bridge:" + "vertical","Wooden bridge · " + "vertical","mat","bridge","Bridge","","bridge-tiles",64,64);
 	a.tile = 1;
 	EditorCatalog.catalog.push(a);
+	EditorCatalog.catalog.push(new EditorAsset("slope:" + 1,"Slope · Terrain " + 1,"mat","slope","Slope","","terrain-" + 1,256,128));
+	EditorCatalog.catalog.push(new EditorAsset("slope:" + 2,"Slope · Terrain " + 2,"mat","slope","Slope","","terrain-" + 2,256,128));
+	EditorCatalog.catalog.push(new EditorAsset("slope:" + 3,"Slope · Terrain " + 3,"mat","slope","Slope","","terrain-" + 3,256,128));
+	EditorCatalog.catalog.push(new EditorAsset("slope:" + 4,"Slope · Terrain " + 4,"mat","slope","Slope","","terrain-" + 4,256,128));
+	EditorCatalog.catalog.push(new EditorAsset("slope:" + 5,"Slope · Terrain " + 5,"mat","slope","Slope","","terrain-" + 5,256,128));
 	EditorCatalog.addTiles("terrain-" + 1,"Terrain " + 1,9,6);
 	EditorCatalog.addTiles("terrain-" + 2,"Terrain " + 2,9,6);
 	EditorCatalog.addTiles("terrain-" + 3,"Terrain " + 3,9,6);
@@ -7068,6 +7101,9 @@ EditorCatalog.addTiles = function(art,title,cols,rows) {
 		var _g3 = cols;
 		while(_g2 < _g3) {
 			var x = _g2++;
+			if(cols == 9 && x < 4 && y >= 4) {
+				continue;
+			}
 			var frame = new openfl_display_BitmapData(64,64,true,0);
 			frame.copyPixels(sheet,new openfl_geom_Rectangle(x * 64,y * 64,64,64),new openfl_geom_Point());
 			if(frame.getColorBoundsRect(-16777216,0,false).width == 0) {
@@ -7113,6 +7149,20 @@ EditorCatalog.get = function(id) {
 			return a;
 		}
 	}
+	var parts = id.split(":");
+	if(parts.length == 4 && parts[0] == "tile" && new EReg("^terrain-[1-5]$","").match(parts[1])) {
+		var x = Std.parseInt(parts[2]);
+		var y = Std.parseInt(parts[3]);
+		if(x != null && y != null && x >= 0 && x < 4 && y >= 4 && y < 6) {
+			var a = new EditorAsset(id,"Legacy slope tile","mat","tile","land","",parts[1],64,64);
+			var frame = new openfl_display_BitmapData(64,64,true,0);
+			frame.copyPixels(Art.data(a.art),new openfl_geom_Rectangle(x * 64,y * 64,64,64),new openfl_geom_Point());
+			if(frame.getColorBoundsRect(-16777216,0,false).width > 0) {
+				EditorCatalog.images.h[id] = frame;
+				return a;
+			}
+		}
+	}
 	return null;
 };
 EditorCatalog.tint = function(color) {
@@ -7134,7 +7184,10 @@ EditorCatalog.frame = function(a) {
 		return EditorCatalog.images.h[a.id];
 	}
 	var data;
-	if(a.type == "bridge") {
+	if(a.type == "slope") {
+		data = new openfl_display_BitmapData(256,128,true,0);
+		data.copyPixels(Art.data(a.art),new openfl_geom_Rectangle(0,256,256,128),new openfl_geom_Point());
+	} else if(a.type == "bridge") {
 		data = BridgeArt.data(a.tile);
 	} else if(a.type == "wall") {
 		data = a.kind == "Wooden Fence" ? FenceArt.data(a.tile) : WallArt.data(a.tile);
@@ -7178,8 +7231,8 @@ EditorCatalog.preview = function(id,thumbnail) {
 		image.set_y(-bounds.height * scale / 2);
 	} else {
 		image.set_scaleX(image.set_scaleY(0.5));
-		image.set_x(-a.width * 0.5 / 2);
-		image.set_y(a.type == "unit" ? -(a.team == "Monsters" ? ActorCatalog.monster(a.kind).foot : a.kind == "Lancer" ? 192 : 128) * 0.5 : a.type == "mat" || a.type == "tile" || a.type == "bridge" ? -16 : -a.height * 0.5 + 16);
+		image.set_x(a.type == "slope" ? -16 : -a.width * 0.5 / 2);
+		image.set_y(a.type == "slope" ? -16 : a.type == "unit" ? -(a.team == "Monsters" ? ActorCatalog.monster(a.kind).foot : a.kind == "Lancer" ? 192 : 128) * 0.5 : a.type == "mat" || a.type == "tile" || a.type == "bridge" ? -16 : -a.height * 0.5 + 16);
 	}
 	return sprite;
 };
@@ -7188,7 +7241,16 @@ $hxClasses["EditorMapFile"] = EditorMapFile;
 EditorMapFile.__name__ = "EditorMapFile";
 EditorMapFile.snapshot = function(w) {
 	var units = w.allUnits();
-	var tmp = { groundTiles : w.terrain.groundTiles, tiles : w.terrain.tiles, water : w.terrain.water, cliffs : w.terrain.cliffs, bridges : w.terrain.bridges, rocks : w.terrain.rocks, elevation : w.navigation.elevation, ramps : w.navigation.ramps};
+	var _g = [];
+	var _g1 = 0;
+	var _g2 = w.slopes;
+	while(_g1 < _g2.length) {
+		var s = _g2[_g1];
+		++_g1;
+		_g.push({ id : s.id, x : s.get_x(), y : s.get_y()});
+	}
+	var tmp = _g;
+	var tmp1 = { groundTiles : w.terrain.groundTiles, tiles : w.terrain.tiles, water : w.terrain.water, cliffs : w.terrain.cliffs, bridges : w.terrain.bridges, rocks : w.terrain.rocks, elevation : w.navigation.elevation, ramps : w.navigation.ramps};
 	var _g = [];
 	var _g1 = 0;
 	var _g2 = w.resources;
@@ -7198,8 +7260,8 @@ EditorMapFile.snapshot = function(w) {
 		var r1 = r.kind;
 		var r2 = r.cellX;
 		var r3 = r.cellY;
-		var tmp1 = r.get_x();
-		var tmp2 = r.get_y();
+		var tmp2 = r.get_x();
+		var tmp3 = r.get_y();
 		var r4 = r.amount;
 		var r5 = r.treeArt;
 		var r6 = r.regrowTimer;
@@ -7211,9 +7273,9 @@ EditorMapFile.snapshot = function(w) {
 			++_g4;
 			_g3.push({ alive : s.alive, x : s.groundX(), y : s.groundY(), homeX : s.homeX, homeY : s.homeY});
 		}
-		_g.push({ kind : r1, cx : r2, cy : r3, x : tmp1, y : tmp2, amount : r4, treeArt : r5, regrowTimer : r6, sheep : _g3});
+		_g.push({ kind : r1, cx : r2, cy : r3, x : tmp2, y : tmp3, amount : r4, treeArt : r5, regrowTimer : r6, sheep : _g3});
 	}
-	var tmp1 = _g;
+	var tmp2 = _g;
 	var _g = [];
 	var _g1 = 0;
 	var _g2 = w.buildings;
@@ -7222,7 +7284,7 @@ EditorMapFile.snapshot = function(w) {
 		++_g1;
 		_g.push({ kind : b.kind, team : b.team, cx : b.cellX, cy : b.cellY, x : b.get_x(), y : b.get_y(), tile : b.wallTile, health : b.health, buildSeconds : b.buildSeconds, workDone : b.workDone});
 	}
-	var tmp2 = _g;
+	var tmp3 = _g;
 	var _g = [];
 	var _g1 = 0;
 	while(_g1 < units.length) {
@@ -7230,16 +7292,16 @@ EditorMapFile.snapshot = function(w) {
 		++_g1;
 		var u1 = u.kind;
 		var u2 = u.team;
-		var tmp3 = u.get_x();
-		var tmp4 = u.get_y();
+		var tmp4 = u.get_x();
+		var tmp5 = u.get_y();
 		var u3 = u.health;
 		var u4 = u.cargoKind;
 		var u5 = u.cargoAmount;
-		var tmp5 = u.garrison == null ? -1 : w.buildings.indexOf(u.garrison);
-		var tmp6 = u.transport == null ? -1 : w.boats.indexOf(u.transport);
+		var tmp6 = u.garrison == null ? -1 : w.buildings.indexOf(u.garrison);
+		var tmp7 = u.transport == null ? -1 : w.boats.indexOf(u.transport);
 		var u6 = u.sailing;
 		var u7 = u.landing;
-		var tmp7 = u.boatExit == null ? null : { x : u.boatExit.x, y : u.boatExit.y};
+		var tmp8 = u.boatExit == null ? null : { x : u.boatExit.x, y : u.boatExit.y};
 		var _g2 = [];
 		var _g3 = 0;
 		var _g4 = u.route;
@@ -7248,9 +7310,9 @@ EditorMapFile.snapshot = function(w) {
 			++_g3;
 			_g2.push({ x : p.x, y : p.y});
 		}
-		_g.push({ kind : u1, team : u2, x : tmp3, y : tmp4, health : u3, cargoKind : u4, cargoAmount : u5, garrison : tmp5, transport : tmp6, sailing : u6, landing : u7, boatExit : tmp7, route : _g2, deployed : u.botDeployed});
+		_g.push({ kind : u1, team : u2, x : tmp4, y : tmp5, health : u3, cargoKind : u4, cargoAmount : u5, garrison : tmp6, transport : tmp7, sailing : u6, landing : u7, boatExit : tmp8, route : _g2, deployed : u.botDeployed});
 	}
-	var tmp3 = _g;
+	var tmp4 = _g;
 	var _g = [];
 	var _g1 = 0;
 	var _g2 = w.boats;
@@ -7258,8 +7320,8 @@ EditorMapFile.snapshot = function(w) {
 		var b = _g2[_g1];
 		++_g1;
 		var b1 = b.hull;
-		var tmp4 = b.get_x();
-		var tmp5 = b.get_y();
+		var tmp5 = b.get_x();
+		var tmp6 = b.get_y();
 		var b2 = b.health;
 		var _g3 = [];
 		var _g4 = 0;
@@ -7269,9 +7331,9 @@ EditorMapFile.snapshot = function(w) {
 			++_g4;
 			_g3.push({ x : p.x, y : p.y});
 		}
-		_g.push({ hull : b1, x : tmp4, y : tmp5, health : b2, route : _g3, landTarget : b.landTarget, beach : b.beach});
+		_g.push({ hull : b1, x : tmp5, y : tmp6, health : b2, route : _g3, landTarget : b.landTarget, beach : b.beach});
 	}
-	return { terrain : tmp, resources : tmp1, buildings : tmp2, units : tmp3, boats : _g, mainCastle : w.castle == null ? -1 : w.buildings.indexOf(w.castle), botActive : w.bot.active};
+	return { slopes : tmp, terrain : tmp1, resources : tmp2, buildings : tmp3, units : tmp4, boats : _g, mainCastle : w.castle == null ? -1 : w.buildings.indexOf(w.castle), botActive : w.bot.active};
 };
 EditorMapFile.number = function(v,min,max) {
 	if(typeof(v) != "number" && !(typeof(v) == "number" && ((v | 0) === v)) || !isFinite(v) || v < min || v > max) {
@@ -7440,6 +7502,21 @@ EditorMapFile.validate = function(data) {
 			}
 		}
 	}
+	if(data.slopes != null) {
+		var _g = 0;
+		var _g1 = EditorMapFile.array(data.slopes,3000);
+		while(_g < _g1.length) {
+			var s = _g1[_g];
+			++_g;
+			if(typeof(s.id) != "string" || EditorCatalog.get(s.id) == null || EditorCatalog.get(s.id).type != "slope") {
+				throw haxe_Exception.thrown("Unknown slope");
+			}
+			EditorMapFile.position(s);
+			if(s.x < 16 || s.y < 16 || s.x - 16 + 128 > 2688 || s.y - 16 + 64 > 1920) {
+				throw haxe_Exception.thrown("Slope outside map");
+			}
+		}
+	}
 	var buildings = EditorMapFile.array(data.buildings,3000);
 	var units = EditorMapFile.array(data.units,3000);
 	var boats = EditorMapFile.array(data.boats,500);
@@ -7576,6 +7653,17 @@ EditorMapFile.validate = function(data) {
 	EditorMapFile.boolean(data.botActive);
 };
 EditorMapFile.apply = function(w,data) {
+	w.slopeLayer.removeChildren();
+	w.slopes = [];
+	if(data.slopes != null) {
+		var slopes = data.slopes;
+		var _g = 0;
+		while(_g < slopes.length) {
+			var s = slopes[_g];
+			++_g;
+			w.addSlope(s.id,s.x,s.y);
+		}
+	}
 	w.objects.removeChildren();
 	w.projectileLayer.removeChildren();
 	w.arrows = [];
@@ -8283,6 +8371,9 @@ MapEditing.prototype = {
 			}
 		}
 		if(hit == null) {
+			hit = this.world.slopeAt(wx,wy);
+		}
+		if(hit == null) {
 			var cx = wx / 32 | 0;
 			var cy = wy / 32 | 0;
 			var _g = 0;
@@ -8316,7 +8407,10 @@ MapEditing.prototype = {
 			this.error = "No object here";
 			return false;
 		}
-		if(((hit) instanceof SheepAnimal)) {
+		if(((hit) instanceof SlopeOverlay)) {
+			HxOverrides.remove(this.world.slopes,hit);
+			this.world.slopeLayer.removeChild(hit);
+		} else if(((hit) instanceof SheepAnimal)) {
 			var animal = hit;
 			animal.owner.take(10,animal);
 			var _g = 0;
@@ -8373,6 +8467,16 @@ MapEditing.prototype = {
 	,move: function(hit,wx,wy) {
 		if(hit == null || hit.parent == null) {
 			return false;
+		}
+		if(((hit) instanceof SlopeOverlay)) {
+			if(wx < 16 || wy < 16 || wx - 16 + 128 > 2688 || wy - 16 + 64 > 1920) {
+				this.error = "Slope outside map";
+				return false;
+			}
+			hit.set_x(wx);
+			hit.set_y(wy);
+			this.error = "Moved slope";
+			return true;
 		}
 		var cx = wx / 32 | 0;
 		var cy = wy / 32 | 0;
@@ -8605,6 +8709,15 @@ MapEditing.prototype = {
 		var id = cy * 84 + cx;
 		if(cx < 0 || cy < 0 || cx >= 84 || cy >= 60) {
 			return false;
+		}
+		if(a.type == "slope") {
+			if(wx < 16 || wy < 16 || wx - 16 + 128 > 2688 || wy - 16 + 64 > 1920) {
+				this.error = "Slope outside map";
+				return false;
+			}
+			this.world.addSlope(a.id,wx,wy);
+			this.error = "Placed " + a.title;
+			return true;
 		}
 		if(a.type == "mat" || a.type == "tile" || a.type == "bridge") {
 			var t = this.world.terrain;
@@ -10421,6 +10534,32 @@ SheepAnimal.prototype = $extend(openfl_display_Sprite.prototype,{
 		this.body.set_y(-40);
 	}
 	,__class__: SheepAnimal
+});
+var SlopeOverlay = function(id,wx,wy) {
+	openfl_display_Sprite.call(this);
+	this.id = id;
+	this.set_x(wx);
+	this.set_y(wy);
+	this.mouseEnabled = this.mouseChildren = false;
+	this.body = new openfl_display_Bitmap(EditorCatalog.frame(EditorCatalog.get(id)),0,false);
+	this.body.set_scaleX(this.body.set_scaleY(0.5));
+	this.body.set_x(this.body.set_y(-16));
+	this.addChild(this.body);
+};
+$hxClasses["SlopeOverlay"] = SlopeOverlay;
+SlopeOverlay.__name__ = "SlopeOverlay";
+SlopeOverlay.__super__ = openfl_display_Sprite;
+SlopeOverlay.prototype = $extend(openfl_display_Sprite.prototype,{
+	containsPoint: function(wx,wy) {
+		var px = (wx - this.get_x() + 16) / 0.5 | 0;
+		var py = (wy - this.get_y() + 16) / 0.5 | 0;
+		if(px >= 0 && py >= 0 && px < 256 && py < 128) {
+			return this.body.get_bitmapData().getPixel32(px,py) >>> 24 >= 32;
+		} else {
+			return false;
+		}
+	}
+	,__class__: SlopeOverlay
 });
 var Std = function() { };
 $hxClasses["Std"] = Std;
@@ -12410,6 +12549,7 @@ var World = function() {
 	this.unitDeaths = [];
 	this.bombs = [];
 	this.arrows = [];
+	this.slopes = [];
 	this.wallCells = new haxe_ds_IntMap();
 	this.grazingSheep = [];
 	openfl_display_Sprite.call(this);
@@ -12419,6 +12559,9 @@ var World = function() {
 	this.navigation = this.terrain.navigation;
 	this.terrainView = new TerrainView(this.terrain);
 	this.addChild(this.terrainView);
+	this.slopeLayer = new openfl_display_Sprite();
+	this.slopeLayer.mouseEnabled = this.slopeLayer.mouseChildren = false;
+	this.addChild(this.slopeLayer);
 	this.marks = new openfl_display_Sprite();
 	this.addChild(this.marks);
 	this.objects = new openfl_display_Sprite();
@@ -12474,7 +12617,20 @@ World.buildCost = function(kind) {
 };
 World.__super__ = openfl_display_Sprite;
 World.prototype = $extend(openfl_display_Sprite.prototype,{
-	addScenery: function(id,cx,cy) {
+	addSlope: function(id,wx,wy) {
+		var s = new SlopeOverlay(id,wx,wy);
+		this.slopes.push(s);
+		this.slopeLayer.addChild(s);
+		return s;
+	}
+	,slopeAt: function(wx,wy) {
+		var i = this.slopes.length;
+		while(i-- > 0) if(this.slopes[i].containsPoint(wx,wy)) {
+			return this.slopes[i];
+		}
+		return null;
+	}
+	,addScenery: function(id,cx,cy) {
 		var item = new Scenery(id,cx,cy);
 		this.scenery.push(item);
 		this.objects.addChild(item);
@@ -35429,7 +35585,7 @@ var lime_utils_AssetCache = function() {
 	this.audio = new haxe_ds_StringMap();
 	this.font = new haxe_ds_StringMap();
 	this.image = new haxe_ds_StringMap();
-	this.version = 799123;
+	this.version = 623841;
 };
 $hxClasses["lime.utils.AssetCache"] = lime_utils_AssetCache;
 lime_utils_AssetCache.__name__ = "lime.utils.AssetCache";
