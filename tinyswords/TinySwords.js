@@ -1048,7 +1048,7 @@ ApplicationMain.main = function() {
 ApplicationMain.create = function(config) {
 	var app = new openfl_display_Application();
 	ManifestResources.init(config);
-	app.meta.h["build"] = "36";
+	app.meta.h["build"] = "37";
 	app.meta.h["company"] = "Tiny Swords";
 	app.meta.h["file"] = "TinySwords";
 	app.meta.h["name"] = "Tiny Swords";
@@ -8156,11 +8156,32 @@ MapEditing.prototype = {
 	rebuildNavigation: function() {
 		var t = this.world.terrain;
 		var n = this.world.navigation;
+		var _g = [];
+		var _g1 = 0;
+		var _g2 = 5040;
+		while(_g1 < _g2) {
+			var _ = _g1++;
+			_g.push(false);
+		}
+		n.slopeRamps = _g;
+		var _g = 0;
+		var _g1 = this.world.slopes;
+		while(_g < _g1.length) {
+			var slope = _g1[_g];
+			++_g;
+			var _g2 = 0;
+			var _g3 = slope.navigationCells();
+			while(_g2 < _g3.length) {
+				var cell = _g3[_g2];
+				++_g2;
+				n.slopeRamps[cell.y * 84 + cell.x] = true;
+			}
+		}
 		var _g = 0;
 		var _g1 = 5040;
 		while(_g < _g1) {
 			var i = _g++;
-			n.blocked[i] = t.water[i] && !t.bridges[i] || t.cliffs[i] || t.rocks[i];
+			n.blocked[i] = t.water[i] && !t.bridges[i] || t.cliffs[i] && !n.slopeRamps[i] || t.rocks[i];
 			this.world.sea.navigation.blocked[i] = !t.water[i] || t.bridges[i];
 		}
 		this.world.wallCells.h = { };
@@ -8533,6 +8554,7 @@ MapEditing.prototype = {
 			}
 			hit.set_x(wx);
 			hit.set_y(wy);
+			this.rebuildNavigation();
 			this.error = "Moved slope";
 			return true;
 		}
@@ -8774,6 +8796,7 @@ MapEditing.prototype = {
 				return false;
 			}
 			this.world.addSlope(a.id,wx,wy);
+			this.rebuildNavigation();
 			this.error = "Placed " + a.title;
 			return true;
 		}
@@ -8911,6 +8934,7 @@ var Navigation = function(width,height) {
 		_g.push(false);
 	}
 	this.ramps = _g;
+	this.slopeRamps = this.ramps.slice();
 };
 $hxClasses["Navigation"] = Navigation;
 Navigation.__name__ = "Navigation";
@@ -8969,8 +8993,8 @@ Navigation.prototype = {
 		var b = ty * this.width + tx;
 		if(this.elevation[a] != this.elevation[b]) {
 			if(Math.abs(this.elevation[a] - this.elevation[b]) == 1) {
-				if(!this.ramps[a]) {
-					return this.ramps[b];
+				if(!(this.ramps[a] || this.ramps[b] || this.slopeRamps[a])) {
+					return this.slopeRamps[b];
 				} else {
 					return true;
 				}
@@ -10608,7 +10632,28 @@ $hxClasses["SlopeOverlay"] = SlopeOverlay;
 SlopeOverlay.__name__ = "SlopeOverlay";
 SlopeOverlay.__super__ = openfl_display_Sprite;
 SlopeOverlay.prototype = $extend(openfl_display_Sprite.prototype,{
-	containsPoint: function(wx,wy) {
+	navigationCells: function() {
+		var a = EditorCatalog.get(this.id);
+		var cells = [];
+		var columns = a.width == 256 ? [0,3] : [0];
+		var _g = 0;
+		while(_g < columns.length) {
+			var column = columns[_g];
+			++_g;
+			var cx = Math.floor((this.get_x() + column * 32) / 32) | 0;
+			var cy = Math.floor(this.get_y() / 32) | 0;
+			if(cx >= 0 && cy >= 0 && cx < 84 && cy < 60) {
+				cells.push({ x : cx, y : cy});
+			}
+			var cx1 = Math.floor((this.get_x() + column * 32) / 32) | 0;
+			var cy1 = Math.floor((this.get_y() + 32) / 32) | 0;
+			if(cx1 >= 0 && cy1 >= 0 && cx1 < 84 && cy1 < 60) {
+				cells.push({ x : cx1, y : cy1});
+			}
+		}
+		return cells;
+	}
+	,containsPoint: function(wx,wy) {
 		var px = (wx - this.get_x() + 16) / 0.5 | 0;
 		var py = (wy - this.get_y() + 16) / 0.5 | 0;
 		if(px >= 0 && py >= 0 && px < this.body.get_bitmapData().width && py < this.body.get_bitmapData().height) {
@@ -13892,7 +13937,7 @@ World.prototype = $extend(openfl_display_Sprite.prototype,{
 			if(!this.navigation.free(cx,cy) && !(u.get_attackRange() > 48 && this.terrain.water[cy * 84 + cx] && this.sea.navigation.free(cx,cy))) {
 				return false;
 			}
-			if(u.get_attackRange() <= 48 && this.navigation.elevation[cy * 84 + cx] != level && !this.navigation.ramps[cy * 84 + cx]) {
+			if(u.get_attackRange() <= 48 && this.navigation.elevation[cy * 84 + cx] != level && !this.navigation.ramps[cy * 84 + cx] && !this.navigation.slopeRamps[cy * 84 + cx]) {
 				return false;
 			}
 		}
@@ -14258,7 +14303,7 @@ World.prototype = $extend(openfl_display_Sprite.prototype,{
 					while(_g4 < _g5) {
 						var x = _g4++;
 						var i = y * 84 + x;
-						this.navigation.blocked[i] = this.terrain.water[i] && !this.terrain.bridges[i] || this.terrain.cliffs[i] || this.terrain.rocks[i];
+						this.navigation.blocked[i] = this.terrain.water[i] && !this.terrain.bridges[i] || this.terrain.cliffs[i] && !this.navigation.slopeRamps[i] || this.terrain.rocks[i];
 						if(b.get_waterHut()) {
 							this.sea.navigation.blocked[i] = !this.terrain.water[i] || this.terrain.bridges[i];
 						}
@@ -35668,7 +35713,7 @@ var lime_utils_AssetCache = function() {
 	this.audio = new haxe_ds_StringMap();
 	this.font = new haxe_ds_StringMap();
 	this.image = new haxe_ds_StringMap();
-	this.version = 89767;
+	this.version = 90866;
 };
 $hxClasses["lime.utils.AssetCache"] = lime_utils_AssetCache;
 lime_utils_AssetCache.__name__ = "lime.utils.AssetCache";
